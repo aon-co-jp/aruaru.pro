@@ -92,11 +92,22 @@ fn validate_upsert(body: &UpsertJobListingRequest) -> Option<Response> {
 }
 
 pub async fn upsert_job_listing(req: Request, db: Arc<AruaruDb>) -> Response {
+    let user = match crate::auth::authenticate(&req, &db).await {
+        Ok(u) => u,
+        Err(resp) => return resp,
+    };
+    if let Some(resp) = crate::auth::require_role(&user, "recruiter") {
+        return resp;
+    }
+
     let body = match read_json_body::<UpsertJobListingRequest>(req).await {
         Ok(b) => b,
         Err(resp) => return resp,
     };
     if let Some(resp) = validate_upsert(&body) {
+        return resp;
+    }
+    if let Some(resp) = crate::auth::require_name_matches(&user, "employer_name", &body.employer_name) {
         return resp;
     }
 
