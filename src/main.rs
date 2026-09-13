@@ -13,6 +13,7 @@ mod categories;
 mod ids;
 mod job_listings;
 mod json_body;
+mod oauth;
 mod orders;
 mod page;
 mod reviews;
@@ -47,6 +48,7 @@ async fn main() -> anyhow::Result<()> {
     career_agent_programs::ensure_table(&db).await?;
 
     let db_auth_register = db.clone();
+    let db_oauth_callback = db.clone();
     let db_categories_list = db.clone();
     let db_categories_page = db.clone();
     let db_programs_upsert = db.clone();
@@ -164,6 +166,17 @@ async fn main() -> anyhow::Result<()> {
             post(handler_fn(move |req, _p| {
                 let db = db_auth_register.clone();
                 Box::pin(async move { auth::register(req, db).await })
+            })),
+        )
+        .at(
+            "/auth/oauth/:provider/start",
+            get(handler_fn(move |req, params| Box::pin(async move { oauth::start(req, params.into()).await }))),
+        )
+        .at(
+            "/auth/oauth/:provider/callback",
+            get(handler_fn(move |req, params| {
+                let db = db_oauth_callback.clone();
+                Box::pin(async move { oauth::callback(req, params.into(), db).await })
             })),
         )
         .at(
