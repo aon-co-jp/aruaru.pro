@@ -1,9 +1,12 @@
-//! 認証(第一段): ロール別のBearerトークン認証。
+//! 認証: ロール別のBearerトークン認証。
 //!
-//! **現状のスコープ**: パスワード・OAuth・メール確認等は無い、
 //! `POST /auth/register`で名前+ロールを渡すとトークンが即発行される
-//! 最小実装(本番投入前にパスワード/メール確認等を追加する必要がある、
-//! 詳細は`CLAUDE.md`の「次にすべきこと」参照)。ロールは
+//! 最小の登録経路(パスワード・メール確認等は無い、開発/テスト用途向け)
+//! に加え、2026-09-13にGoogle(Gmail)/Facebook/X(旧Twitter)の
+//! OAuth 2.0ログイン(`oauth.rs`)を追加し、実在のメールアドレス/
+//! アカウントで本人確認する経路も提供する(ユーザー指示「GmailやFacebook
+//! やXのOAuth認証は実装して」)。どちらの経路でも最終的に同じ`users`
+//! テーブル・同じ形式のBearerトークンを発行する。ロールは
 //! 出品者(`seller`)・依頼者(`buyer`)・求職者(`job_seeker`)・
 //! 採用担当(`recruiter`)の4種(ユーザー指示「出品者/依頼者/求職者/
 //! 採用担当のロール分け」、2026-09-13)。
@@ -21,9 +24,29 @@ use crate::json_body::read_json_body;
 pub const ROLES: &[&str] = &["seller", "buyer", "job_seeker", "recruiter"];
 
 pub async fn ensure_table(db: &AruaruDb) -> anyhow::Result<()> {
-    db.execute("CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, name TEXT, role TEXT, token TEXT UNIQUE)", &[])
-        .await
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS users (\
+            id TEXT PRIMARY KEY, \
+            name TEXT, \
+            role TEXT, \
+            token TEXT UNIQUE, \
+            email TEXT, \
+            oauth_provider TEXT, \
+            oauth_subject TEXT\
+        )",
+        &[],
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("{e}"))?;
+    // 既存テーブル(OAuth新設前に作成済みのもの)への追従。Postgresの
+    // `ADD COLUMN IF NOT EXISTS`は冪等なので複数回実行しても安全。
+    for stmt in [
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS oauth_provider TEXT",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS oauth_subject TEXT",
+    ] {
+        db.execute(stmt, &[]).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+    }
     Ok(())
 }
 

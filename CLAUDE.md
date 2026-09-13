@@ -182,18 +182,54 @@
 `validate_upsert`→`validate_upsert_fields`+`category_is_known_statically`
 へ分割、既存テストの意図は保持)。
 
+## 2026-09-13 続き2: Google/Facebook/X OAuth 2.0ログインを追加
+
+ユーザー指示「認証はパスワード/OAuth無しの最小実装 GmailやFacebookや
+XのOAuth認証は実装して」に基づき`src/oauth.rs`を新設。
+
+- `GET /auth/oauth/:provider/start?role=<role>`(`provider`は
+  `google`/`facebook`/`x`) → 各プロバイダの認可URLを`{"authorize_url":
+  ...}`で返す(302直接リダイレクトではない——`open_runo_poem_compat`側に
+  リダイレクト応答ヘルパーが無いため、呼び出し側がこのURLへ遷移する
+  形。将来ヘルパーが整備されれば差し替え可能)。CSRF対策の`state`
+  (Xのみ必要なPKCE `code_verifier`/`code_challenge`込み)をプロセス内
+  メモリ(`OnceLock<Mutex<HashMap<..>>>`)で保持。
+- `GET /auth/oauth/:provider/callback?code=...&state=...` →
+  `code`をアクセストークンに交換→各プロバイダのuserinfo APIで
+  `(subject, name, email)`取得→`(oauth_provider, oauth_subject)`で
+  既存ユーザー検索、無ければ新規作成→自前のBearerトークンを発行して
+  返す(`auth::register`と同じトークン形式、既存の`users`テーブルに
+  `email`/`oauth_provider`/`oauth_subject`列を追加、既存DBへの
+  `ALTER TABLE ADD COLUMN IF NOT EXISTS`で追従)。
+- 依存クレート追加: `reqwest`(json/form/query feature、HTTPクライアント)・
+  `sha2`(PKCE code_challenge用のSHA-256)。
+- **正直な開示**: (1) state/PKCEのプロセス内メモリ保持はCookie
+  セッションが無い簡易実装で、プロセス再起動・マルチインスタンス構成
+  では機能しない。(2) X(旧Twitter)のuserinfo APIは既定でメール
+  アドレスを返さないため`email`が`None`のまま登録されることがある。
+  (3) 実際のOAuthアプリ登録(client_id/secret)がこのセッションの環境に
+  無いため、実際のGoogle/Facebook/Xアカウントでのログイン往復は
+  未検証——URL構築・PKCE生成(既知テストベクタで裏取り済み)・
+  パーセントエンコードのロジックのみユニットテストで確認。
+
+テスト5件追加、`cargo test`43件全green・警告0件。
+
 ## 次にすべきこと
 
 1. Stripe Webhook(決済完了通知→注文の`completed`遷移の自動化、
    現状は`POST /orders/:id/transition`を手動で呼ぶ想定)。
 2. StripeのテストモードAPIキーでの実機検証(オンボーディング〜
    チェックアウトの一連の流れを実際に動かして確認)。
-3. パスワード/メール確認等、認証の本番投入前の強化。
+3. Google/Facebook/X各プロバイダで実際にOAuthアプリを登録し
+   (`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`等の環境変数設定)、
+   実機でログイン往復を検証する。
 4. `career_agent_programs`の収益モデル(エージェント企業からの成約
    報酬等)の検討——現状は掲載機能のみで決済との接続は無い。
 5. インタラクティブなUI(カテゴリ絞り込み検索等)が必要になった時点で
    RS-Reactの`App::tick`(状態変化への追従・再レンダー)を実際に使う
    ——現状のカテゴリ一覧ページはまだ静的なSSRのみ。
+6. state/PKCEのプロセス内メモリ保持をCookieセッション or
+   DBバックエンドへ置き換える(マルチインスタンス構成対応)。
 
 ## 関連プロジェクト
 
