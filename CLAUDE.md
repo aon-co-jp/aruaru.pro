@@ -24,6 +24,30 @@
 - **決済**: Stripe Connect(既存決済プラットフォームを利用する方針、
   独自の資金移動システムは実装しない——法令対応の観点から)。
 
+## Rust自前実装エコシステムの優先利用(ユーザー指示、2026-09-13)
+
+「実際にRust版が完成していれば、日頃の開発で使用して」という指示を
+受け、**aruaru.proの今後の実装では、`RFrontEnd`傘下のRust自前実装
+(既存実装コードを流用しない再開発)を優先的に使う**方針とする
+(既存の他プロジェクト——audiocafe-tokyo等——への横断的な入れ替えは
+対象外、ユーザー確認済み)。
+
+- JSON処理 → [RS-JSON](https://github.com/aon-co-jp/RS-JSON)
+  (`serde_json`を直接呼ぶ代わりに使う、`job-site`が既にこのパターン)
+- HTML生成(SSR) → [RS-HTML](https://github.com/aon-co-jp/RS-HTML)
+- CSS/スタイル計算 → [RS-CSS](https://github.com/aon-co-jp/RS-CSS)
+- CSSフレームワーク相当(グリッド/基本コンポーネント) →
+  [RS-BootStrap](https://github.com/aon-co-jp/RS-BootStrap)
+- フロントエンド(コンポーネントモデル) →
+  [RS-React](https://github.com/aon-co-jp/RS-React)
+- GraphQL API(将来REST以外のAPIが必要になった場合) →
+  [RS-GraphQL](https://github.com/aon-co-jp/RS-GraphQL)
+
+これらのいずれかが該当機能に対してまだ未成熟(例: RS-Reactの`use_effect`
+未実装、RS-CSSにCSSテキストシリアライザが無い等)な場合は、各リポジトリ
+のCLAUDE.mdの「次にすべきこと」を先に完成させてから使う(既存方針
+「投げやり・その場しのぎ禁止」に沿う)。
+
 ## スコープ(ユーザー指示、2026-09-13)
 
 - コンコナラの主要カテゴリを幅広くカバーするフルスコープ(1〜2カテゴリの
