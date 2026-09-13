@@ -8,13 +8,16 @@
 //! 未着手(詳細は`CLAUDE.md`の「次にすべきこと」参照)。
 
 mod categories;
+mod json_body;
 mod page;
+mod reviews;
+mod services;
 
 use std::sync::Arc;
 
 use aruaru_db_connector::AruaruDb;
 use open_runo_poem_compat::hyper_compat::{html_response, json_response};
-use open_runo_poem_compat::{get, handler_fn, Request, Response, Route, Server, StatusCode, TcpListener};
+use open_runo_poem_compat::{get, handler_fn, post, Request, Response, Route, Server, StatusCode, TcpListener};
 use serde_json::json;
 
 #[tokio::main]
@@ -28,6 +31,14 @@ async fn main() -> anyhow::Result<()> {
             .await
             .map_err(|e| anyhow::anyhow!("aruaru-db connect failed: {e}"))?,
     );
+    services::ensure_table(&db).await?;
+    reviews::ensure_table(&db).await?;
+
+    let db_services_upsert = db.clone();
+    let db_services_list = db.clone();
+    let db_services_get = db.clone();
+    let db_reviews_create = db.clone();
+    let db_reviews_list = db.clone();
 
     let app = Route::new()
         .at(
@@ -41,6 +52,35 @@ async fn main() -> anyhow::Result<()> {
         .at(
             "/",
             get(handler_fn(|_req: Request, _p| Box::pin(async { render_categories_page().await }))),
+        )
+        .at(
+            "/services",
+            post(handler_fn(move |req, _p| {
+                let db = db_services_upsert.clone();
+                Box::pin(async move { services::upsert_service(req, db).await })
+            }))
+            .get(handler_fn(move |_req, _p| {
+                let db = db_services_list.clone();
+                Box::pin(async move { services::list_services(db).await })
+            })),
+        )
+        .at(
+            "/services/:id",
+            get(handler_fn(move |req, params| {
+                let db = db_services_get.clone();
+                Box::pin(async move { services::get_service(req, params.into(), db).await })
+            })),
+        )
+        .at(
+            "/services/:id/reviews",
+            post(handler_fn(move |req, params| {
+                let db = db_reviews_create.clone();
+                Box::pin(async move { reviews::create_review(req, params.into(), db).await })
+            }))
+            .get(handler_fn(move |req, params| {
+                let db = db_reviews_list.clone();
+                Box::pin(async move { reviews::list_reviews(req, params.into(), db).await })
+            })),
         );
 
     let bind_addr: std::net::SocketAddr =
@@ -48,10 +88,6 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("aruaru.pro listening on {bind_addr}");
     let (_addr, handle) = Server::new(TcpListener::bind(bind_addr)).run(app).await?;
     handle.await?;
-
-    // db は将来のエンドポイント(出品/注文/レビュー)実装まで保持する
-    // (現状は接続確認のみで未使用、警告回避のため明示的にdrop)。
-    drop(db);
     Ok(())
 }
 
