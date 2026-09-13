@@ -9,6 +9,7 @@
 
 mod categories;
 mod ids;
+mod job_listings;
 mod json_body;
 mod orders;
 mod page;
@@ -38,6 +39,7 @@ async fn main() -> anyhow::Result<()> {
     reviews::ensure_table(&db).await?;
     orders::ensure_table(&db).await?;
     stripe_connect::ensure_table(&db).await?;
+    job_listings::ensure_table(&db).await?;
 
     let db_services_upsert = db.clone();
     let db_services_list = db.clone();
@@ -48,6 +50,9 @@ async fn main() -> anyhow::Result<()> {
     let db_orders_transition = db.clone();
     let db_stripe_onboarding = db.clone();
     let db_stripe_checkout = db.clone();
+    let db_jobs_upsert = db.clone();
+    let db_jobs_list = db.clone();
+    let db_jobs_get = db.clone();
 
     let app = Route::new()
         .at(
@@ -117,6 +122,24 @@ async fn main() -> anyhow::Result<()> {
             post(handler_fn(move |_req, params| {
                 let db = db_stripe_checkout.clone();
                 Box::pin(async move { stripe_connect::create_checkout_session(params.into(), db).await })
+            })),
+        )
+        .at(
+            "/jobs",
+            post(handler_fn(move |req, _p| {
+                let db = db_jobs_upsert.clone();
+                Box::pin(async move { job_listings::upsert_job_listing(req, db).await })
+            }))
+            .get(handler_fn(move |_req, _p| {
+                let db = db_jobs_list.clone();
+                Box::pin(async move { job_listings::list_job_listings(db).await })
+            })),
+        )
+        .at(
+            "/jobs/:id",
+            get(handler_fn(move |req, params| {
+                let db = db_jobs_get.clone();
+                Box::pin(async move { job_listings::get_job_listing(req, params.into(), db).await })
             })),
         );
 
