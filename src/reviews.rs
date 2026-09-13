@@ -1,8 +1,7 @@
 //! レビュー(Review)。特定の出品(`service_id`)に対する評価。
-//! **現状のスコープ(第一段)**: 注文(Order)との紐付けは未着手——本来は
-//! 「注文が完了したレビュアーだけが投稿できる」という制約を持つべきだが、
-//! 注文モデル自体がまだ無いため、この制約はまだ実装していない
-//! (`CLAUDE.md`の「次にすべきこと」参照)。
+//! **2026-09-13、注文(Order)との紐付けを実装**: レビューは
+//! 「その出品への完了済み注文の買い手本人」しか投稿できない
+//! (`orders::order_is_completed_by`で確認、`crate::orders`参照)。
 
 use std::sync::Arc;
 
@@ -88,7 +87,18 @@ pub async fn create_review(req: Request, params: PathParams, db: Arc<AruaruDb>) 
         return resp;
     }
 
-    let id = format!("{service_id}--review-{}", uuid_like());
+    match crate::orders::order_is_completed_by(&db, &service_id, &body.reviewer_name).await {
+        Ok(true) => {}
+        Ok(false) => {
+            return json_response(
+                StatusCode::FORBIDDEN,
+                &json!({ "error": "only a buyer with a completed order for this service may leave a review" }),
+            )
+        }
+        Err(e) => return json_response(StatusCode::INTERNAL_SERVER_ERROR, &json!({"error": e})),
+    }
+
+    let id = crate::ids::make_id(&[&service_id, &body.reviewer_name, &uuid_like()], "review");
 
     if let Err(e) = db
         .execute(
