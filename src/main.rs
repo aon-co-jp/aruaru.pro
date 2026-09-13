@@ -14,6 +14,7 @@ mod orders;
 mod page;
 mod reviews;
 mod services;
+mod stripe_connect;
 
 use std::sync::Arc;
 
@@ -36,6 +37,7 @@ async fn main() -> anyhow::Result<()> {
     services::ensure_table(&db).await?;
     reviews::ensure_table(&db).await?;
     orders::ensure_table(&db).await?;
+    stripe_connect::ensure_table(&db).await?;
 
     let db_services_upsert = db.clone();
     let db_services_list = db.clone();
@@ -44,6 +46,8 @@ async fn main() -> anyhow::Result<()> {
     let db_reviews_list = db.clone();
     let db_orders_create = db.clone();
     let db_orders_transition = db.clone();
+    let db_stripe_onboarding = db.clone();
+    let db_stripe_checkout = db.clone();
 
     let app = Route::new()
         .at(
@@ -99,6 +103,20 @@ async fn main() -> anyhow::Result<()> {
             post(handler_fn(move |req, params| {
                 let db = db_orders_transition.clone();
                 Box::pin(async move { orders::transition_order(req, params.into(), db).await })
+            })),
+        )
+        .at(
+            "/sellers/:seller_name/stripe/onboarding",
+            post(handler_fn(move |_req, params| {
+                let db = db_stripe_onboarding.clone();
+                Box::pin(async move { stripe_connect::create_onboarding_link(params.into(), db).await })
+            })),
+        )
+        .at(
+            "/orders/:order_id/checkout",
+            post(handler_fn(move |_req, params| {
+                let db = db_stripe_checkout.clone();
+                Box::pin(async move { stripe_connect::create_checkout_session(params.into(), db).await })
             })),
         );
 
