@@ -214,6 +214,32 @@ XのOAuth認証は実装して」に基づき`src/oauth.rs`を新設。
 
 テスト5件追加、`cargo test`43件全green・警告0件。
 
+## 2026-09-13 続き3: Cookieセッションをプロセス内メモリからDBへ本格化
+
+ユーザー指摘「state/PKCEの保持がプロセス内メモリのみ——Cookieセッション
+がある試作品としては本格的な開発をして、再起動やマルチインスタンス
+構成でも機能させて」に基づき実装。
+
+- **`sessions`テーブル**(`auth.rs`): ログイン成功時(`register`・
+  `oauth::callback`)に`auth::issue_session`がセッションIDを発行し
+  `Set-Cookie: aruaru_session=...; HttpOnly; SameSite=Lax; Max-Age=
+  2592000`(30日)を付与。`authenticate`は`Authorization: Bearer`
+  ヘッダ(既存のAPIクライアント向け経路、後方互換で維持)→無ければ
+  `Cookie`ヘッダのセッションの順で認証を試みる(ブラウザ向けCookie
+  セッション・APIクライアント向けBearerトークンの両対応)。
+- **`oauth_pending_states`テーブル**(`oauth.rs`): OAuthのCSRF対策
+  state・Xのみ使うPKCE code_verifierを、プロセス内メモリ
+  (`OnceLock<Mutex<HashMap<..>>>`)からDBテーブルへ移行。`callback`で
+  取り出すと同時に削除(ワンタイム、リプレイ対策)。15分の有効期限、
+  `start`のたびに期限切れエントリを機会的に削除。
+- どちらも`aruaru-db`という共有DBへの接続を前提とするため、
+  プロセス再起動・複数インスタンス構成(ロードバランサ配下)のいずれでも
+  同じ状態を検証できるようになった(以前の「プロセス内メモリのみ」
+  という限界を解消)。
+- `hyper`crateを直接依存に追加(`HeaderValue`/`COOKIE`/`SET_COOKIE`の
+  ため、以前は`open-runo-router`経由の推移的依存にしか無かった)。
+- テスト2件追加、`cargo test`45件全green・警告0件。
+
 ## 次にすべきこと
 
 1. Stripe Webhook(決済完了通知→注文の`completed`遷移の自動化、
@@ -222,14 +248,31 @@ XのOAuth認証は実装して」に基づき`src/oauth.rs`を新設。
    チェックアウトの一連の流れを実際に動かして確認)。
 3. Google/Facebook/X各プロバイダで実際にOAuthアプリを登録し
    (`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`等の環境変数設定)、
-   実機でログイン往復を検証する。
+   実機でログイン往復を検証する(下記「OAuthアプリ登録手順」参照
+   ——ユーザー自身のアカウントでの登録作業が必要、代理実行不可)。
 4. `career_agent_programs`の収益モデル(エージェント企業からの成約
    報酬等)の検討——現状は掲載機能のみで決済との接続は無い。
 5. インタラクティブなUI(カテゴリ絞り込み検索等)が必要になった時点で
    RS-Reactの`App::tick`(状態変化への追従・再レンダー)を実際に使う
    ——現状のカテゴリ一覧ページはまだ静的なSSRのみ。
-6. state/PKCEのプロセス内メモリ保持をCookieセッション or
-   DBバックエンドへ置き換える(マルチインスタンス構成対応)。
+6. セッションの明示的ログアウト(`DELETE /auth/session`的なエンドポイント
+   でセッション行を削除する)が未実装——現状は有効期限切れを待つのみ。
+
+## OAuthアプリ登録手順(ユーザー自身の作業、2026-09-13)
+
+`ARUARU_PRO_PUBLIC_URL=https://aruaru.pro`を前提とした、各プロバイダの
+リダイレクトURI:
+
+| プロバイダ | リダイレクトURI |
+|---|---|
+| Google | `https://aruaru.pro/auth/oauth/google/callback` |
+| Facebook | `https://aruaru.pro/auth/oauth/facebook/callback` |
+| X | `https://aruaru.pro/auth/oauth/x/callback` |
+
+登録後に得た`client_id`/`client_secret`を、サーバーの環境変数
+`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`・
+`FACEBOOK_CLIENT_ID`/`FACEBOOK_CLIENT_SECRET`・
+`X_CLIENT_ID`/`X_CLIENT_SECRET`にそれぞれ設定する。
 
 ## 関連プロジェクト
 

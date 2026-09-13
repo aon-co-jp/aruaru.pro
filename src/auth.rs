@@ -1,4 +1,4 @@
-//! 認証: ロール別のBearerトークン認証。
+//! 認証: ロール別のBearerトークン認証+DBバックのCookieセッション。
 //!
 //! `POST /auth/register`で名前+ロールを渡すとトークンが即発行される
 //! 最小の登録経路(パスワード・メール確認等は無い、開発/テスト用途向け)
@@ -10,10 +10,24 @@
 //! 出品者(`seller`)・依頼者(`buyer`)・求職者(`job_seeker`)・
 //! 採用担当(`recruiter`)の4種(ユーザー指示「出品者/依頼者/求職者/
 //! 採用担当のロール分け」、2026-09-13)。
+//!
+//! ## Cookieセッション(2026-09-13、DBバックへ本格化)
+//!
+//! 以前はOAuthのCSRF対策state/PKCEをプロセス内メモリ(`OnceLock<Mutex<
+//! HashMap<..>>>`)に保持していたため、プロセス再起動やマルチインスタンス
+//! 構成(ロードバランサ配下に複数プロセス)で機能しないという限界が
+//! あった(ユーザー指摘、2026-09-13)。`sessions`テーブル(DB永続化、
+//! `aruaru-db`は複数プロセスから共有接続できる)へ置き換え、ログイン
+//! (`register`・`oauth::callback`)成功時に`Set-Cookie`でセッションIDを
+//! 発行する。`authenticate`は`Authorization: Bearer`ヘッダ(既存のAPI
+//! クライアント向け経路、後方互換で維持)→無ければ`Cookie`ヘッダの
+//! セッションIDの順で認証を試みる。OAuthのstate/PKCEも同様にDBの
+//! `oauth_pending_states`テーブルへ移した(`oauth.rs`参照)。
 
 use std::sync::Arc;
 
 use aruaru_db_connector::AruaruDb;
+use hyper::header::{HeaderValue, COOKIE, SET_COOKIE};
 use open_runo_poem_compat::hyper_compat::json_response;
 use open_runo_poem_compat::{Request, Response, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -22,6 +36,10 @@ use serde_json::json;
 use crate::json_body::read_json_body;
 
 pub const ROLES: &[&str] = &["seller", "buyer", "job_seeker", "recruiter"];
+
+const SESSION_COOKIE_NAME: &str = "aruaru_session";
+/// セッションの有効期間(秒)。30日。
+const SESSION_MAX_AGE_SECONDS: i64 = 60 * 60 * 24 * 30;
 
 pub async fn ensure_table(db: &AruaruDb) -> anyhow::Result<()> {
     db.execute(
@@ -47,7 +65,80 @@ pub async fn ensure_table(db: &AruaruDb) -> anyhow::Result<()> {
     ] {
         db.execute(stmt, &[]).await.map_err(|e| anyhow::anyhow!("{e}"))?;
     }
+    // Cookieセッション(DB永続化、プロセス再起動・マルチインスタンス
+    // 構成でも機能する——`aruaru-db`への接続を持つプロセスなら誰でも
+    // 同じセッションを検証できる)。
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS sessions (\
+            session_id TEXT PRIMARY KEY, \
+            user_token TEXT, \
+            created_at BIGINT\
+        )",
+        &[],
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("{e}"))?;
     Ok(())
+}
+
+fn now_unix() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
+}
+
+/// ログイン成功時にセッションを新規発行し、`Set-Cookie`ヘッダを付けた
+/// レスポンスを返す。`user_token`は`users.token`(既存のBearerトークンと
+/// 同じ値)——セッションは「このBearerトークンをこのCookieで代理する」
+/// という薄いマッピングに過ぎない設計(認可ロジック自体は変えない)。
+pub async fn issue_session(db: &AruaruDb, user_token: &str, mut resp: Response) -> Response {
+    let session_id = crate::ids::make_token();
+    if let Err(e) = db
+        .execute(
+            "INSERT INTO sessions (session_id, user_token, created_at) VALUES ($1, $2, $3)",
+            &[&session_id, &user_token, &now_unix()],
+        )
+        .await
+    {
+        return json_response(StatusCode::INTERNAL_SERVER_ERROR, &json!({"error": e.to_string()}));
+    }
+    if let Err(e) = db.commit("session issued").await {
+        return json_response(StatusCode::INTERNAL_SERVER_ERROR, &json!({"error": e.to_string()}));
+    }
+
+    let cookie = format!(
+        "{SESSION_COOKIE_NAME}={session_id}; Path=/; HttpOnly; SameSite=Lax; Max-Age={SESSION_MAX_AGE_SECONDS}"
+    );
+    if let Ok(value) = HeaderValue::from_str(&cookie) {
+        resp.headers_mut().insert(SET_COOKIE, value);
+    }
+    resp
+}
+
+fn read_session_cookie(req: &Request) -> Option<String> {
+    let header = req.headers().get(COOKIE)?.to_str().ok()?;
+    for pair in header.split(';') {
+        let pair = pair.trim();
+        if let Some(value) = pair.strip_prefix(&format!("{SESSION_COOKIE_NAME}=")) {
+            return Some(value.to_string());
+        }
+    }
+    None
+}
+
+/// セッションIDから`users.token`を引く(期限切れの検証も行う——
+/// `created_at`+`SESSION_MAX_AGE_SECONDS`を過ぎたセッションは無効)。
+async fn resolve_session_token(db: &AruaruDb, session_id: &str) -> Result<Option<String>, String> {
+    let rows = db
+        .query("SELECT user_token, created_at FROM sessions WHERE session_id = $1", &[&session_id])
+        .await
+        .map_err(|e| e.to_string())?;
+    let Some(row) = rows.into_iter().next() else { return Ok(None) };
+    let user_token: String = row.get(0);
+    let created_at: i64 = row.get(1);
+    if now_unix() - created_at > SESSION_MAX_AGE_SECONDS {
+        return Ok(None);
+    }
+    Ok(Some(user_token))
 }
 
 #[derive(Debug, Deserialize)]
@@ -105,7 +196,9 @@ pub async fn register(req: Request, db: Arc<AruaruDb>) -> Response {
         return json_response(StatusCode::INTERNAL_SERVER_ERROR, &json!({"error": e.to_string()}));
     }
 
-    json_response(StatusCode::OK, &RegisterResponse { id, name: body.name, role: body.role, token })
+    let resp =
+        json_response(StatusCode::OK, &RegisterResponse { id, name: body.name, role: body.role, token: token.clone() });
+    issue_session(&db, &token, resp).await
 }
 
 #[derive(Debug, Clone)]
@@ -114,19 +207,39 @@ pub struct AuthUser {
     pub role: String,
 }
 
-/// `Authorization: Bearer <token>`ヘッダからユーザーを解決する。
-/// ヘッダを読むだけなのでリクエストボディはまだ消費しない
-/// (呼び出し側は認証確認後に`read_json_body`でボディを読む)。
+/// `Authorization: Bearer <token>`ヘッダ、無ければ`Cookie`ヘッダの
+/// セッションからユーザーを解決する(どちらもヘッダを読むだけなので
+/// リクエストボディはまだ消費しない——呼び出し側は認証確認後に
+/// `read_json_body`でボディを読む)。API クライアント(Bearer)・
+/// ブラウザ(Cookieセッション)の両方に対応する設計。
 pub async fn authenticate(req: &Request, db: &AruaruDb) -> Result<AuthUser, Response> {
-    let token = req
+    let bearer_token = req
         .headers()
         .get("authorization")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .map(str::to_string);
 
-    let Some(token) = token else {
-        return Err(json_response(StatusCode::UNAUTHORIZED, &json!({"error": "missing Authorization header"})));
+    let token = match bearer_token {
+        Some(t) => t,
+        None => match read_session_cookie(req) {
+            Some(session_id) => match resolve_session_token(db, &session_id).await {
+                Ok(Some(t)) => t,
+                Ok(None) => {
+                    return Err(json_response(
+                        StatusCode::UNAUTHORIZED,
+                        &json!({"error": "session expired or not found"}),
+                    ))
+                }
+                Err(e) => return Err(json_response(StatusCode::INTERNAL_SERVER_ERROR, &json!({"error": e}))),
+            },
+            None => {
+                return Err(json_response(
+                    StatusCode::UNAUTHORIZED,
+                    &json!({"error": "missing Authorization header or session cookie"}),
+                ))
+            }
+        },
     };
 
     match db.query("SELECT name, role FROM users WHERE token = $1", &[&token]).await {
@@ -211,5 +324,22 @@ mod tests {
     fn require_name_matches_accepts_own_name() {
         let user = AuthUser { name: "山田太郎".to_string(), role: "seller".to_string() };
         assert!(require_name_matches(&user, "seller_name", "山田太郎").is_none());
+    }
+
+    #[test]
+    fn session_cookie_name_and_max_age_are_sane() {
+        // Cookie文字列組み立てロジック自体はDB接続が要るため統合テスト
+        // 側の検証範囲だが、定数の整合性(名前が空でない、期間が正の値)
+        // だけはここで裏取りできる。
+        assert!(!SESSION_COOKIE_NAME.is_empty());
+        assert!(SESSION_MAX_AGE_SECONDS > 0);
+    }
+
+    #[test]
+    fn now_unix_is_monotonically_reasonable() {
+        let a = now_unix();
+        let b = now_unix();
+        assert!(b >= a);
+        assert!(a > 0);
     }
 }

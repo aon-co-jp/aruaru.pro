@@ -44,10 +44,12 @@ async fn main() -> anyhow::Result<()> {
     stripe_connect::ensure_table(&db).await?;
     job_listings::ensure_table(&db).await?;
     auth::ensure_table(&db).await?;
+    oauth::ensure_table(&db).await?;
     categories::ensure_table_and_seed(&db).await?;
     career_agent_programs::ensure_table(&db).await?;
 
     let db_auth_register = db.clone();
+    let db_oauth_start = db.clone();
     let db_oauth_callback = db.clone();
     let db_categories_list = db.clone();
     let db_categories_page = db.clone();
@@ -170,7 +172,10 @@ async fn main() -> anyhow::Result<()> {
         )
         .at(
             "/auth/oauth/:provider/start",
-            get(handler_fn(move |req, params| Box::pin(async move { oauth::start(req, params.into()).await }))),
+            get(handler_fn(move |req, params| {
+                let db = db_oauth_start.clone();
+                Box::pin(async move { oauth::start(req, params.into(), db).await })
+            })),
         )
         .at(
             "/auth/oauth/:provider/callback",
