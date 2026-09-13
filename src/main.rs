@@ -8,6 +8,7 @@
 //! 未着手(詳細は`CLAUDE.md`の「次にすべきこと」参照)。
 
 mod auth;
+mod career_agent_programs;
 mod categories;
 mod ids;
 mod job_listings;
@@ -42,8 +43,15 @@ async fn main() -> anyhow::Result<()> {
     stripe_connect::ensure_table(&db).await?;
     job_listings::ensure_table(&db).await?;
     auth::ensure_table(&db).await?;
+    categories::ensure_table_and_seed(&db).await?;
+    career_agent_programs::ensure_table(&db).await?;
 
     let db_auth_register = db.clone();
+    let db_categories_list = db.clone();
+    let db_categories_page = db.clone();
+    let db_programs_upsert = db.clone();
+    let db_programs_list = db.clone();
+    let db_programs_get = db.clone();
     let db_services_upsert = db.clone();
     let db_services_list = db.clone();
     let db_services_get = db.clone();
@@ -64,11 +72,17 @@ async fn main() -> anyhow::Result<()> {
         )
         .at(
             "/categories",
-            get(handler_fn(|_req: Request, _p| Box::pin(async { list_categories().await }))),
+            get(handler_fn(move |_req: Request, _p| {
+                let db = db_categories_list.clone();
+                Box::pin(async move { list_categories(db).await })
+            })),
         )
         .at(
             "/",
-            get(handler_fn(|_req: Request, _p| Box::pin(async { render_categories_page().await }))),
+            get(handler_fn(move |_req: Request, _p| {
+                let db = db_categories_page.clone();
+                Box::pin(async move { render_categories_page(db).await })
+            })),
         )
         .at(
             "/services",
@@ -151,6 +165,24 @@ async fn main() -> anyhow::Result<()> {
                 let db = db_auth_register.clone();
                 Box::pin(async move { auth::register(req, db).await })
             })),
+        )
+        .at(
+            "/career-agent-programs",
+            post(handler_fn(move |req, _p| {
+                let db = db_programs_upsert.clone();
+                Box::pin(async move { career_agent_programs::upsert_program(req, db).await })
+            }))
+            .get(handler_fn(move |_req, _p| {
+                let db = db_programs_list.clone();
+                Box::pin(async move { career_agent_programs::list_programs(db).await })
+            })),
+        )
+        .at(
+            "/career-agent-programs/:id",
+            get(handler_fn(move |req, params| {
+                let db = db_programs_get.clone();
+                Box::pin(async move { career_agent_programs::get_program(req, params.into(), db).await })
+            })),
         );
 
     let bind_addr: std::net::SocketAddr =
@@ -161,12 +193,17 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn list_categories() -> Response {
-    json_response(StatusCode::OK, &json!({ "categories": categories::CATEGORIES }))
+/// カテゴリ一覧(DB上の`categories`テーブルから読む、
+/// `categories::load_category_tree`参照)。
+async fn list_categories(db: Arc<AruaruDb>) -> Response {
+    match categories::load_category_tree(&db).await {
+        Ok(tree) => json_response(StatusCode::OK, &json!({ "categories": tree })),
+        Err(e) => json_response(StatusCode::INTERNAL_SERVER_ERROR, &json!({"error": e})),
+    }
 }
 
 /// RS-React(`App::mount`+`render_to_html`)でカテゴリ一覧をSSRする
 /// 最小のUI(詳細は`page`モジュール参照)。
-async fn render_categories_page() -> Response {
-    html_response(StatusCode::OK, page::render_categories_page())
+async fn render_categories_page(db: Arc<AruaruDb>) -> Response {
+    html_response(StatusCode::OK, page::render_categories_page(&db).await)
 }
