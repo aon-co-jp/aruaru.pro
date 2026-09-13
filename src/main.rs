@@ -8,11 +8,12 @@
 //! 未着手(詳細は`CLAUDE.md`の「次にすべきこと」参照)。
 
 mod categories;
+mod page;
 
 use std::sync::Arc;
 
 use aruaru_db_connector::AruaruDb;
-use open_runo_poem_compat::hyper_compat::json_response;
+use open_runo_poem_compat::hyper_compat::{html_response, json_response};
 use open_runo_poem_compat::{get, handler_fn, Request, Response, Route, Server, StatusCode, TcpListener};
 use serde_json::json;
 
@@ -36,6 +37,10 @@ async fn main() -> anyhow::Result<()> {
         .at(
             "/categories",
             get(handler_fn(|_req: Request, _p| Box::pin(async { list_categories().await }))),
+        )
+        .at(
+            "/",
+            get(handler_fn(|_req: Request, _p| Box::pin(async { render_categories_page().await }))),
         );
 
     let bind_addr: std::net::SocketAddr =
@@ -52,4 +57,10 @@ async fn main() -> anyhow::Result<()> {
 
 async fn list_categories() -> Response {
     json_response(StatusCode::OK, &json!({ "categories": categories::CATEGORIES }))
+}
+
+/// RS-React(`App::mount`+`render_to_html`)でカテゴリ一覧をSSRする
+/// 最小のUI(詳細は`page`モジュール参照)。
+async fn render_categories_page() -> Response {
+    html_response(StatusCode::OK, page::render_categories_page())
 }

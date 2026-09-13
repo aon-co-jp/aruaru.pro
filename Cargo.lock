@@ -117,6 +117,7 @@ dependencies = [
  "aruaru-db-connector",
  "http-body-util",
  "open-runo-poem-compat",
+ "rs-react",
  "rust-json",
  "serde",
  "serde_json",
@@ -2367,6 +2368,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "rcss3"
+version = "0.1.0"
+
+[[package]]
 name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2516,6 +2521,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "rhtml5"
+version = "0.1.0"
+
+[[package]]
 name = "ring"
 version = "0.17.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2527,6 +2536,14 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "rs-react"
+version = "0.1.0"
+dependencies = [
+ "rcss3",
+ "rhtml5",
 ]
 
 [[package]]

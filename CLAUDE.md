@@ -67,35 +67,63 @@
   新規リポジトリでゼロから」)。ただし本リポジトリの`src/main.rs`は
   job-siteのRPoem+aruaru-db結線パターン(リクエストボディのRS-JSON
   デコード、`AruaruDb::connect`等)を参考にしている。
-- **RS-React**: フロント基盤として使う想定。2026-09-13時点で関数
-  コンポーネント+`use_state`フックまで実装済みだが、「ツリー全体の
-  再レンダーループ」(dirtyなコンポーネントだけ再render→diff→
-  `apply_patch`する「アプリループ」自体)がまだ無い——本格的なSPA/SSR
-  ハイドレーションに使うには、まずRS-React側でこれを実装する必要がある。
+- **RS-React**: フロント基盤として使う想定。2026-09-13、`App::mount`+
+  `render_to_html`によるSSR最小UI(カテゴリ一覧、`src/page.rs`)を実際に
+  接続・動作確認済み(下記「現状」参照)。ただし`App::tick`(状態変化への
+  追従・再レンダー)はこのページではまだ使っていない——カテゴリ一覧が
+  現時点でクライアント操作を持たないため。
 
-## 現状(2026-09-13リポジトリ新設)
+## Rust自前実装の実装ノウハウについて(ユーザー指示、2026-09-13)
+
+「RS-などのRust版は、Rust+TauriやtokioなどRPoemでの実装時のノウハウを
+上手く取り入れて」という指示があった。RPoem(`open-runo-poem-compat`
+等)の開発で確立された非同期実行基盤・エラー処理・機能フラグ設計等の
+パターンを、RS-HTML/RS-CSS/RS-React等のRust自前実装(および本リポジトリ
+自身)の実装時に積極的に参考にする方針とする。具体例:
+- `dom_bridge`のようなoptional feature設計(依存を必須にしない、
+  RPoem側の各クレートが機能フラグでオプトインさせる設計と同じ考え方)。
+- エラー型の扱い(`anyhow`での集約、呼び出し元での分類——job-siteの
+  `aruaru_db_connector::Error`variant分岐と同じパターン)。
+- 今後Wasmハイドレーション(RS-TypeScript/RS-JavaScript経由)を実装する
+  際は、RPoemの「サーバー側実行基盤とブラウザ側実行環境は役割が異なる」
+  という層の整理(`RFrontEnd/CLAUDE.md`参照)を踏襲する。
+
+## 現状(2026-09-13)
 
 - `Cargo.toml`: `open-runo-poem-compat`(RPoem)・`aruaru-db-connector`・
-  `rust-json`(RS-JSON)へのpath依存。
-- `src/main.rs`: `GET /healthz`・`GET /categories`のみ。出品・注文・
-  エスクロー・決済・レビュー・チャット等は未着手。
+  `rust-json`(RS-JSON)・`rs-react`(`dom_bridge`フィーチャ有効)への
+  path依存。
+- `src/main.rs`: `GET /healthz`・`GET /categories`(JSON)・`GET /`
+  (RS-ReactによるSSRカテゴリ一覧、下記参照)。出品・注文・エスクロー・
+  決済・レビュー・チャット等は未着手。
 - `src/categories.rs`: カテゴリマスタ(ユーザー提示のcoconala機能LISTを
   そのまま流用、「デザイン制作」は子カテゴリ21件を持つ)。テスト2件
-  green(カテゴリ名の重複無し、デザイン制作の子カテゴリ確認)。
+  green。
+- **`src/page.rs`(2026-09-13新設)**: RS-Reactの`App::mount`でカテゴリ
+  一覧コンポーネントを初回render→`rs_react::render_to_html`でHTML文字列化
+  する最小のSSRページ。RS-HTML側で新設した`serialize_node`公開・
+  RS-React側で新設した`render_to_html`/`vnode_to_node`公開により実現
+  (両方2026-09-13にこの一連の作業で追加)。テスト2件green
+  (全カテゴリがHTMLに現れる・デザイン制作の子カテゴリが入れ子の`<ul>`で
+  現れる)。一時的な`cargo run --example print_page`で実際のHTML出力を
+  目視確認済み(確認後にexampleファイルは削除、動作確認用の一時ファイル
+  だったため)。`App::tick`によるインタラクティブな再レンダーはまだ
+  使っていない(カテゴリ一覧は現時点で静的)。
 - `cargo build`/`cargo test`: 通過確認済み。
 
 ## 次にすべきこと
 
-1. **RS-React側の「アプリループ」実装**(RS-React CLAUDE.mdの「次にすべき
-   こと」参照)——これが無いとフロントの本格実装に進めない。
-2. データモデル設計: 出品(Service)・注文(Order)・レビュー・出品者
+1. データモデル設計: 出品(Service)・注文(Order)・レビュー・出品者
    プロフィール・カテゴリツリー(現状は静的定数、DBテーブル化が必要)。
-3. Stripe Connectオンボーディング(Standard/Express)・
+2. Stripe Connectオンボーディング(Standard/Express)・
    `application_fee_amount`によるプラットフォーム手数料の実装方針決定
    (Rust向けstripe SDKクレートの選定含む)。
-4. 求人・アルバイト情報カテゴリの専用データモデル(スキル出品とは
+3. 求人・アルバイト情報カテゴリの専用データモデル(スキル出品とは
    フィールドが異なる——勤務地・時給・雇用形態等)の検討。
-5. 認証(出品者/依頼者/求職者/採用担当のロール分け)。
+4. 認証(出品者/依頼者/求職者/採用担当のロール分け)。
+5. インタラクティブなUI(カテゴリ絞り込み検索等)が必要になった時点で
+   RS-Reactの`App::tick`(状態変化への追従・再レンダー)を実際に使う
+   ——現状のカテゴリ一覧ページはまだ静的なSSRのみ。
 
 ## 関連プロジェクト
 
