@@ -9,19 +9,31 @@
 //! 1. `GET /auth/oauth/:provider/start?role=buyer` → 各プロバイダの
 //!    認可エンドポイントへ302リダイレクト。`state`(CSRF対策の
 //!    ワンタイム値)と、Xのみ必要なPKCE(`code_verifier`/
-//!    `code_challenge`)をサーバー側メモリに保持する。
+//!    `code_challenge`)を`oauth_pending_states`テーブル(DB、下記
+//!    「2026-09-13、DBバックへ本格化」参照)に保持する。
 //! 2. ユーザーがプロバイダ側でログイン・許可 → プロバイダが
 //!    `redirect_uri`(`/auth/oauth/:provider/callback`)へ`code`+`state`
 //!    付きでリダイレクト。
 //! 3. `code`をアクセストークンに交換 → プロバイダのuserinfo APIで
 //!    メール/名前/subject idを取得 → `(provider, subject)`で既存の
 //!    ユーザーを検索、無ければ新規作成 → 自前のBearerトークンを発行
-//!    して返す(`auth::register`と同じトークン形式)。
+//!    して返し、`auth::issue_session`でCookieセッションも発行する。
 //!
-//! ## 正直な開示(現状のスコープ・第一段)
-//! - **CSRF対策のstate/PKCEの保存はプロセス内メモリのみ**(`OnceLock<Mutex<..>>`)。
-//!   プロセス再起動やマルチインスタンス構成では機能しない
-//!   (Cookieセッションが無いための簡易実装、本番投入前に見直しが必要)。
+//! ## 2026-09-13、DBバックへ本格化
+//! 以前はstate/PKCEをプロセス内メモリ(`OnceLock<Mutex<HashMap<..>>>`)に
+//! 保持していたため、プロセス再起動やマルチインスタンス構成
+//! (ロードバランサ配下に複数プロセス)では、`start`を受けたプロセスと
+//! `callback`を受けたプロセスが別だと機能しないという限界があった
+//! (ユーザー指摘、2026-09-13:「Cookieセッションがある試作品としては
+//! 本格的な開発をして、再起動やマルチインスタンス構成でも機能させて」)。
+//! `oauth_pending_states`テーブル(DB永続化、`aruaru-db`へ接続する
+//! どのプロセスからも同じ状態を検証できる)へ置き換えた。
+//! 有効期限(`PENDING_STATE_MAX_AGE_SECONDS`、15分)を過ぎたエントリは
+//! `callback`で無効として扱う——`start`のたびに期限切れエントリを
+//! 機会的に削除する(専用のバックグラウンドジョブは持たない、
+//! 軽量な自己クリーンアップ)。
+//!
+//! ## 正直な開示(現状のスコープ)
 //! - **X(Twitter)のuserinfo APIはデフォルトでメールアドレスを返さない**
 //!   (Xの制約——メール取得には別途申請が必要)。そのため`email`は
 //!   `None`のまま登録されることがある。
@@ -29,9 +41,6 @@
 //!   このセッションの環境には無いため、実機(実際のGoogle/Facebook/X
 //!   アカウントでのログイン往復)は未検証**。URL構築・トークン交換・
 //!   userinfoパース・DBへのupsertのロジックはユニットテストで検証。
-
-use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
 
 use aruaru_db_connector::AruaruDb;
 use open_runo_poem_compat::hyper_compat::json_response;
@@ -126,16 +135,79 @@ fn redirect_uri(provider: Provider) -> String {
     format!("{base_url}/auth/oauth/{}/callback", provider.as_str())
 }
 
-/// CSRF対策のstateと、Xのみ使うPKCE code_verifierを紐づけて保持する
-/// (プロセス内メモリのみ、上記モジュールコメントの「正直な開示」参照)。
+/// state/PKCEの有効期間(秒)。この間に`callback`が来なければ無効。
+const PENDING_STATE_MAX_AGE_SECONDS: i64 = 15 * 60;
+
+fn now_unix() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
+}
+
+pub async fn ensure_table(db: &AruaruDb) -> anyhow::Result<()> {
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS oauth_pending_states (\
+            state TEXT PRIMARY KEY, \
+            role TEXT, \
+            pkce_verifier TEXT, \
+            created_at BIGINT\
+        )",
+        &[],
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("{e}"))?;
+    Ok(())
+}
+
+/// CSRF対策のstateと、Xのみ使うPKCE code_verifierを紐づけてDBへ保持する
+/// (`oauth_pending_states`テーブル、モジュールコメントの
+/// 「2026-09-13、DBバックへ本格化」参照)。
 struct PendingAuth {
     role: String,
     pkce_verifier: Option<String>,
 }
 
-fn pending_store() -> &'static Mutex<HashMap<String, PendingAuth>> {
-    static STORE: OnceLock<Mutex<HashMap<String, PendingAuth>>> = OnceLock::new();
-    STORE.get_or_init(|| Mutex::new(HashMap::new()))
+async fn store_pending_auth(db: &AruaruDb, state: &str, pending: &PendingAuth) -> Result<(), String> {
+    // 機会的クリーンアップ: 専用のバックグラウンドジョブを持たない代わりに
+    // `start`のたびに期限切れエントリを削除する(軽量、テーブルが無限に
+    // 肥大化することを防ぐ)。
+    db.execute(
+        "DELETE FROM oauth_pending_states WHERE created_at < $1",
+        &[&(now_unix() - PENDING_STATE_MAX_AGE_SECONDS)],
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+
+    db.execute(
+        "INSERT INTO oauth_pending_states (state, role, pkce_verifier, created_at) VALUES ($1, $2, $3, $4)",
+        &[&state, &pending.role, &pending.pkce_verifier, &now_unix()],
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    db.commit("oauth pending state stored").await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// `state`に対応するpending認証を取り出し、DBから削除する(ワンタイム
+/// ——同じ`state`で2回目の`callback`は必ず失敗する、再送/リプレイ対策)。
+/// 期限切れの場合は`Ok(None)`(見つからなかった場合と同じ扱い、
+/// タイミング攻撃で「期限切れ」と「存在しない」を区別させない)。
+async fn take_pending_auth(db: &AruaruDb, state: &str) -> Result<Option<PendingAuth>, String> {
+    let rows = db
+        .query("SELECT role, pkce_verifier, created_at FROM oauth_pending_states WHERE state = $1", &[&state])
+        .await
+        .map_err(|e| e.to_string())?;
+    let Some(row) = rows.into_iter().next() else { return Ok(None) };
+
+    db.execute("DELETE FROM oauth_pending_states WHERE state = $1", &[&state]).await.map_err(|e| e.to_string())?;
+    db.commit("oauth pending state consumed").await.map_err(|e| e.to_string())?;
+
+    let role: String = row.get(0);
+    let pkce_verifier: Option<String> = row.get(1);
+    let created_at: i64 = row.get(2);
+    if now_unix() - created_at > PENDING_STATE_MAX_AGE_SECONDS {
+        return Ok(None);
+    }
+    Ok(Some(PendingAuth { role, pkce_verifier }))
 }
 
 fn query_param(req: &Request, key: &str) -> Option<String> {
@@ -236,7 +308,7 @@ fn base64url_encode(bytes: &[u8]) -> String {
 /// `open_runo_poem_compat`側にヘルパーが無いため、呼び出し側
 /// ——ブラウザ/クライアント——がこのURLへ遷移する形。将来302を直接
 /// 返すヘルパーが整備されればそちらへ差し替え可能)。
-pub async fn start(req: Request, params: PathParams) -> Response {
+pub async fn start(req: Request, params: PathParams, db: std::sync::Arc<AruaruDb>) -> Response {
     let Some(provider) = params.get("provider").and_then(Provider::parse) else {
         return json_response(StatusCode::BAD_REQUEST, &json!({"error": "unknown provider"}));
     };
@@ -260,7 +332,9 @@ pub async fn start(req: Request, params: PathParams) -> Response {
         (None, None)
     };
 
-    pending_store().lock().unwrap().insert(state.clone(), PendingAuth { role, pkce_verifier });
+    if let Err(e) = store_pending_auth(&db, &state, &PendingAuth { role, pkce_verifier }).await {
+        return json_response(StatusCode::INTERNAL_SERVER_ERROR, &json!({"error": e}));
+    }
 
     let redirect = redirect_uri(provider);
     let mut url = format!(
@@ -413,9 +487,15 @@ pub async fn callback(req: Request, params: PathParams, db: std::sync::Arc<Aruar
         return json_response(StatusCode::BAD_REQUEST, &json!({"error": "missing state"}));
     };
 
-    let pending = pending_store().lock().unwrap().remove(&state);
+    let pending = match take_pending_auth(&db, &state).await {
+        Ok(p) => p,
+        Err(e) => return json_response(StatusCode::INTERNAL_SERVER_ERROR, &json!({"error": e})),
+    };
     let Some(pending) = pending else {
-        return json_response(StatusCode::BAD_REQUEST, &json!({"error": "unknown or expired state (possible CSRF)"}));
+        return json_response(
+            StatusCode::BAD_REQUEST,
+            &json!({"error": "unknown, expired, or already-used state (possible CSRF or replay)"}),
+        );
     };
 
     let access_token = match exchange_code_for_token(provider, &config, &code, pending.pkce_verifier.as_deref()).await
@@ -429,7 +509,10 @@ pub async fn callback(req: Request, params: PathParams, db: std::sync::Arc<Aruar
     };
 
     match upsert_oauth_user(&db, provider, &identity, &pending.role).await {
-        Ok((name, role, token)) => json_response(StatusCode::OK, &json!({ "name": name, "role": role, "token": token })),
+        Ok((name, role, token)) => {
+            let resp = json_response(StatusCode::OK, &json!({ "name": name, "role": role, "token": token }));
+            crate::auth::issue_session(&db, &token, resp).await
+        }
         Err(e) => json_response(StatusCode::INTERNAL_SERVER_ERROR, &json!({"error": e})),
     }
 }

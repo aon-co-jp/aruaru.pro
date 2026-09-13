@@ -117,6 +117,7 @@ dependencies = [
  "aruaru-db-connector",
  "async-stripe",
  "http-body-util",
+ "hyper 1.11.1",
  "open-runo-poem-compat",
  "reqwest 0.13.5",
  "rs-react",
