@@ -1,0 +1,21 @@
+[package]
+name = "aruaru-pro"
+version = "0.1.0"
+edition = "2021"
+description = "aruaru.pro: コンコナラ型スキルマーケットプレイス+求人サイト統合(Rust + RPoem + RS-React、決済はStripe Connect)"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+open-runo-poem-compat = { path = "../RPoem/crates/open-runo-poem-compat" }
+aruaru-db-connector = { path = "../aruaru-db/clients/rust-aruaru-db" }
+rust-json = { path = "../RS-JSON" }
+tokio = { version = "1", features = ["full"] }
+tokio-postgres = "0.7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+http-body-util = "0.1"
+
+[workspace]
