@@ -9,6 +9,7 @@ license = "MIT OR Apache-2.0"
 open-runo-poem-compat = { path = "../RPoem/crates/open-runo-poem-compat" }
 aruaru-db-connector = { path = "../aruaru-db/clients/rust-aruaru-db" }
 rust-json = { path = "../RS-JSON" }
+rs-react = { path = "../RFrontEnd/RS-React", features = ["dom_bridge"] }
 tokio = { version = "1", features = ["full"] }
 tokio-postgres = "0.7"
 serde = { version = "1", features = ["derive"] }
