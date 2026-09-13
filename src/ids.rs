@@ -40,6 +40,16 @@ pub fn make_id(parts: &[&str], prefix: &str) -> String {
     }
 }
 
+/// 認証トークン・レビューid等に使う簡易な一意文字列。外部の`uuid`
+/// クレートに依存せず、システム時刻(ナノ秒)を16進で使う(衝突耐性は
+/// 本物のUUIDに劣るが、この規模のトラフィックには十分——本格的な
+/// 対策が必要なら次段階で`uuid`クレート導入を検討)。
+pub fn make_token() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    format!("{nanos:x}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -65,6 +65,14 @@ fn validate(body: &CreateReviewRequest) -> Option<Response> {
 }
 
 pub async fn create_review(req: Request, params: PathParams, db: Arc<AruaruDb>) -> Response {
+    let user = match crate::auth::authenticate(&req, &db).await {
+        Ok(u) => u,
+        Err(resp) => return resp,
+    };
+    if let Some(resp) = crate::auth::require_role(&user, "buyer") {
+        return resp;
+    }
+
     let Some(service_id) = params.get("id").map(str::to_string) else {
         return json_response(StatusCode::BAD_REQUEST, &json!({"error": "missing service id"}));
     };
@@ -86,6 +94,9 @@ pub async fn create_review(req: Request, params: PathParams, db: Arc<AruaruDb>) 
     if let Some(resp) = validate(&body) {
         return resp;
     }
+    if let Some(resp) = crate::auth::require_name_matches(&user, "reviewer_name", &body.reviewer_name) {
+        return resp;
+    }
 
     match crate::orders::order_is_completed_by(&db, &service_id, &body.reviewer_name).await {
         Ok(true) => {}
@@ -98,7 +109,7 @@ pub async fn create_review(req: Request, params: PathParams, db: Arc<AruaruDb>) 
         Err(e) => return json_response(StatusCode::INTERNAL_SERVER_ERROR, &json!({"error": e})),
     }
 
-    let id = crate::ids::make_id(&[&service_id, &body.reviewer_name, &uuid_like()], "review");
+    let id = crate::ids::make_id(&[&service_id, &body.reviewer_name, &crate::ids::make_token()], "review");
 
     if let Err(e) = db
         .execute(
@@ -145,16 +156,6 @@ pub async fn list_reviews(_req: Request, params: PathParams, db: Arc<AruaruDb>) 
         }
         Err(e) => json_response(StatusCode::INTERNAL_SERVER_ERROR, &json!({"error": e.to_string()})),
     }
-}
-
-/// レビューid用の簡易な一意サフィックス。外部の`uuid`クレートに依存
-/// せず、システム時刻(ナノ秒)を16進で使う(衝突耐性は本物のUUIDに劣るが、
-/// 同一service_id内での連番的な用途には十分——本格的な対策が必要なら
-/// 次段階で`uuid`クレート導入を検討)。
-fn uuid_like() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-    format!("{nanos:x}")
 }
 
 #[cfg(test)]

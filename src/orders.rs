@@ -61,6 +61,14 @@ fn validate_create(body: &CreateOrderRequest) -> Option<Response> {
 const VALID_TRANSITIONS: &[(&str, &str)] = &[("pending", "completed"), ("pending", "cancelled")];
 
 pub async fn create_order(req: Request, params: PathParams, db: Arc<AruaruDb>) -> Response {
+    let user = match crate::auth::authenticate(&req, &db).await {
+        Ok(u) => u,
+        Err(resp) => return resp,
+    };
+    if let Some(resp) = crate::auth::require_role(&user, "buyer") {
+        return resp;
+    }
+
     let Some(service_id) = params.get("id").map(str::to_string) else {
         return json_response(StatusCode::BAD_REQUEST, &json!({"error": "missing service id"}));
     };
@@ -78,6 +86,9 @@ pub async fn create_order(req: Request, params: PathParams, db: Arc<AruaruDb>) -
         Err(resp) => return resp,
     };
     if let Some(resp) = validate_create(&body) {
+        return resp;
+    }
+    if let Some(resp) = crate::auth::require_name_matches(&user, "buyer_name", &body.buyer_name) {
         return resp;
     }
 

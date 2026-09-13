@@ -7,6 +7,7 @@
 //! 出品・注文・エスクロー・Stripe Connect決済・レビュー・チャット等は
 //! 未着手(詳細は`CLAUDE.md`の「次にすべきこと」参照)。
 
+mod auth;
 mod categories;
 mod ids;
 mod job_listings;
@@ -40,7 +41,9 @@ async fn main() -> anyhow::Result<()> {
     orders::ensure_table(&db).await?;
     stripe_connect::ensure_table(&db).await?;
     job_listings::ensure_table(&db).await?;
+    auth::ensure_table(&db).await?;
 
+    let db_auth_register = db.clone();
     let db_services_upsert = db.clone();
     let db_services_list = db.clone();
     let db_services_get = db.clone();
@@ -140,6 +143,13 @@ async fn main() -> anyhow::Result<()> {
             get(handler_fn(move |req, params| {
                 let db = db_jobs_get.clone();
                 Box::pin(async move { job_listings::get_job_listing(req, params.into(), db).await })
+            })),
+        )
+        .at(
+            "/auth/register",
+            post(handler_fn(move |req, _p| {
+                let db = db_auth_register.clone();
+                Box::pin(async move { auth::register(req, db).await })
             })),
         );
 

@@ -92,11 +92,22 @@ fn validate_upsert(body: &UpsertServiceRequest) -> Option<Response> {
 }
 
 pub async fn upsert_service(req: Request, db: Arc<AruaruDb>) -> Response {
+    let user = match crate::auth::authenticate(&req, &db).await {
+        Ok(u) => u,
+        Err(resp) => return resp,
+    };
+    if let Some(resp) = crate::auth::require_role(&user, "seller") {
+        return resp;
+    }
+
     let body = match read_json_body::<UpsertServiceRequest>(req).await {
         Ok(b) => b,
         Err(resp) => return resp,
     };
     if let Some(resp) = validate_upsert(&body) {
+        return resp;
+    }
+    if let Some(resp) = crate::auth::require_name_matches(&user, "seller_name", &body.seller_name) {
         return resp;
     }
 
