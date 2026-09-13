@@ -54,11 +54,14 @@ struct UpsertServiceResponse {
     commit_id: String,
 }
 
-/// 必須フィールドの空文字チェック+価格の妥当性チェック。
+/// 必須フィールドの空文字チェック+価格の妥当性チェック(カテゴリの
+/// 実在チェックは含まない——コンパイル時定数だけでは、DBへ後から
+/// 追加されたカテゴリを弾いてしまうため、`upsert_service`側で別途
+/// `category_is_known`(同期/高速)→DBフォールバックの2段で確認する)。
 /// (RS-JSONの型検証は必須フィールド欠如は検出するが、空文字や負の
 /// 価格はすり抜けるため、`job-site`の`validate_upsert`と同じ理由で
 /// 別途弾く)。
-fn validate_upsert(body: &UpsertServiceRequest) -> Option<Response> {
+fn validate_upsert_fields(body: &UpsertServiceRequest) -> Option<Response> {
     let bad_field = if body.seller_name.trim().is_empty() {
         Some("seller_name")
     } else if body.title.trim().is_empty() {
@@ -82,13 +85,15 @@ fn validate_upsert(body: &UpsertServiceRequest) -> Option<Response> {
             &json!({ "error": "price_yen must be a positive integer" }),
         ));
     }
-    if !crate::categories::CATEGORIES.iter().any(|c| c.name == body.category) {
-        return Some(json_response(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            &json!({ "error": format!("unknown category: \"{}\"", body.category) }),
-        ));
-    }
     None
+}
+
+/// コンパイル時定数(`categories::CATEGORIES`)にカテゴリが存在するかを
+/// I/O無しで確認する高速パス。DBには存在するが定数には無い(=後から
+/// 追加された)カテゴリは`false`を返す——呼び出し側はその場合のみDBへ
+/// フォールバックする(`categories::category_exists_in_db`)。
+fn category_is_known_statically(category: &str) -> bool {
+    crate::categories::CATEGORIES.iter().any(|c| c.name == category)
 }
 
 pub async fn upsert_service(req: Request, db: Arc<AruaruDb>) -> Response {
@@ -104,11 +109,23 @@ pub async fn upsert_service(req: Request, db: Arc<AruaruDb>) -> Response {
         Ok(b) => b,
         Err(resp) => return resp,
     };
-    if let Some(resp) = validate_upsert(&body) {
+    if let Some(resp) = validate_upsert_fields(&body) {
         return resp;
     }
     if let Some(resp) = crate::auth::require_name_matches(&user, "seller_name", &body.seller_name) {
         return resp;
+    }
+    if !category_is_known_statically(&body.category) {
+        match crate::categories::category_exists_in_db(&db, &body.category).await {
+            Ok(true) => {}
+            Ok(false) => {
+                return json_response(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    &json!({ "error": format!("unknown category: \"{}\"", body.category) }),
+                )
+            }
+            Err(e) => return json_response(StatusCode::INTERNAL_SERVER_ERROR, &json!({"error": e})),
+        }
     }
 
     // id生成の日本語衝突対策は`crate::ids::make_id`参照。
@@ -189,7 +206,7 @@ mod tests {
             price_yen: 1000,
             message: default_commit_message(),
         };
-        assert!(validate_upsert(&body).is_some());
+        assert!(validate_upsert_fields(&body).is_some());
     }
 
     #[test]
@@ -202,20 +219,19 @@ mod tests {
             price_yen: 0,
             message: default_commit_message(),
         };
-        assert!(validate_upsert(&body).is_some());
+        assert!(validate_upsert_fields(&body).is_some());
     }
 
     #[test]
-    fn validate_upsert_rejects_unknown_category() {
-        let body = UpsertServiceRequest {
-            seller_name: "鈴木一郎".to_string(),
-            category: "存在しないカテゴリ".to_string(),
-            title: "ロゴ制作".to_string(),
-            description: "説明".to_string(),
-            price_yen: 1000,
-            message: default_commit_message(),
-        };
-        assert!(validate_upsert(&body).is_some());
+    fn category_is_known_statically_rejects_unknown_category() {
+        assert!(!category_is_known_statically("存在しないカテゴリ"));
+    }
+
+    #[test]
+    fn category_is_known_statically_accepts_every_seeded_category() {
+        for cat in crate::categories::CATEGORIES {
+            assert!(category_is_known_statically(cat.name), "category {} must be known statically", cat.name);
+        }
     }
 
     #[test]
@@ -228,6 +244,6 @@ mod tests {
             price_yen: 5000,
             message: default_commit_message(),
         };
-        assert!(validate_upsert(&body).is_none());
+        assert!(validate_upsert_fields(&body).is_none());
     }
 }

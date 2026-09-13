@@ -132,20 +132,66 @@
 - `cargo build`/`cargo test`: 通過確認済み(このリポジトリ自体の警告0件、
   RPoem側の既存warning 3件は対象外)。
 
+## 2026-09-13 続き: 1〜5の実装完了+IT研修付き転職エージェント新設
+
+ユーザー指示「1から5の順番で実装して」に基づき、以下を全て実装済み。
+
+1. **注文(Order)モデル**(`src/orders.rs`): `POST /services/:id/orders`・
+   `POST /orders/:id/transition`(pending→completed/cancelledのみ許可)。
+   `reviews::create_review`は`orders::order_is_completed_by`で
+   「その出品への完了済み注文の買い手本人か」を確認するようになった。
+2. **Stripe Connect**(`src/stripe_connect.rs`): `async-stripe`0.41.0
+   (`connect`+`checkout`+`runtime-tokio-hyper-rustls-webpki`feature)。
+   `POST /sellers/:seller_name/stripe/onboarding`(Express Connect
+   アカウント作成+Onboardingリンク)・`POST /orders/:order_id/checkout`
+   (`application_fee_amount`+`transfer_data.destination`による手数料
+   付きCheckout Session)。手数料率5%(定数`PLATFORM_FEE_PERCENT`)。
+   **正直な開示**: テストAPIキーが無いため実際のAPI呼び出しは実機
+   未検証(コンパイル通過+金額計算ロジックのテストのみ)。
+3. **求人・アルバイト情報の専用データモデル**(`src/job_listings.rs`):
+   `services`テーブルとは別の`job_listings`テーブル(勤務地・時給・
+   雇用形態)。雇用形態は固定一覧(正社員/契約社員/アルバイト/パート/
+   業務委託/派遣)。
+4. **認証**(`src/auth.rs`): `POST /auth/register`でBearerトークン即発行
+   (seller/buyer/job_seeker/recruiterの4ロール)。出品・注文・レビュー・
+   求人作成の各ハンドラに`authenticate`+`require_role`+
+   `require_name_matches`(なりすまし防止)を組み込み。**正直な開示**:
+   パスワード・OAuth・メール確認は無い第一段の最小実装。
+5. **カテゴリマスタのDBテーブル化**(`src/categories.rs`):
+   `categories`テーブル(name/parent_name/position)をコンパイル時定数
+   `CATEGORIES`から起動時にシード(`ensure_table_and_seed`、
+   `ON CONFLICT DO NOTHING`で冪等)。`GET /categories`・`GET /`
+   (SSRページ)ともDBから読むようになった。出品作成時のカテゴリ検証は
+   `category_is_known_statically`(高速・I/O無し)→`category_exists_in_db`
+   (フォールバック)の2段構成にし、既存の同期ユニットテストを保ちながら
+   将来の管理者によるカテゴリ追加(再デプロイ無し)にも対応できるように
+   した。
+
+**追加(ユーザー指示、2026-09-13)**: 「正社員求人や無料のIT研修付き
+無料の転職エージェントサービスコーナーも作って」。正社員求人自体は
+上記3の`job_listings`(`employment_type = "正社員"`)で既にカバー済み
+のため、新設したのは「無料IT研修+就職支援」という異なるサービス形態
+(`src/career_agent_programs.rs`、`career_agent_programs`テーブル:
+`agent_name`/`program_name`/`description`/`training_weeks`/
+`target_job_type`/`is_free_for_trainee`)。`POST/GET
+/career-agent-programs`・`GET /career-agent-programs/:id`を実装、
+認証は`recruiter`ロールを流用(専用ロールは新設せず既存の役割分担に
+収めた)。カテゴリマスタに「IT研修付き転職エージェント」を追加。
+
+テスト合計38件全green・警告0件(services.rsのカテゴリ検証テストは
+`validate_upsert`→`validate_upsert_fields`+`category_is_known_statically`
+へ分割、既存テストの意図は保持)。
+
 ## 次にすべきこと
 
-1. 注文(Order)モデル(現状レビューは「注文完了者のみ投稿可」という
-   制約を実装していない——注文自体が無いため)。
-2. Stripe Connectオンボーディング(Standard/Express)・
-   `application_fee_amount`によるプラットフォーム手数料の実装方針決定
-   (Rust向けstripe SDKクレートの選定含む)。
-3. 求人・アルバイト情報カテゴリの専用データモデル(スキル出品とは
-   フィールドが異なる——勤務地・時給・雇用形態等)の検討。
-4. 認証(出品者/依頼者/求職者/採用担当のロール分け、現状は誰でも
-   `POST /services`で出品作成・なりすまし可能な状態)。
-5. カテゴリマスタのDBテーブル化(現状は`categories::CATEGORIES`の
-   静的定数、カテゴリ追加に再デプロイが必要)。
-6. インタラクティブなUI(カテゴリ絞り込み検索等)が必要になった時点で
+1. Stripe Webhook(決済完了通知→注文の`completed`遷移の自動化、
+   現状は`POST /orders/:id/transition`を手動で呼ぶ想定)。
+2. StripeのテストモードAPIキーでの実機検証(オンボーディング〜
+   チェックアウトの一連の流れを実際に動かして確認)。
+3. パスワード/メール確認等、認証の本番投入前の強化。
+4. `career_agent_programs`の収益モデル(エージェント企業からの成約
+   報酬等)の検討——現状は掲載機能のみで決済との接続は無い。
+5. インタラクティブなUI(カテゴリ絞り込み検索等)が必要になった時点で
    RS-Reactの`App::tick`(状態変化への追従・再レンダー)を実際に使う
    ——現状のカテゴリ一覧ページはまだ静的なSSRのみ。
 
