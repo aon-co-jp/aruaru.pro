@@ -100,13 +100,8 @@ pub async fn upsert_service(req: Request, db: Arc<AruaruDb>) -> Response {
         return resp;
     }
 
-    // **job-siteのslugifyパターンを転用しない理由**: job-siteのslugify
-    // (英数字以外を`-`に潰す)は日本語の出品者名・タイトルに対しては
-    // 全て空文字になってしまい、異なる出品が同じid(空文字同士の連結)
-    // へ衝突する——このサービスは日本語が主言語のため、素朴なslugify
-    // 転用は実際にデータを壊す。ハッシュを必ず付与して一意性を保証し、
-    // ASCII成分がある場合のみ読みやすいslugを前置する。
-    let id = make_service_id(&body.seller_name, &body.title);
+    // id生成の日本語衝突対策は`crate::ids::make_id`参照。
+    let id = crate::ids::make_id(&[&body.seller_name, &body.title], "svc");
 
     if let Err(e) = db
         .execute(
@@ -167,65 +162,11 @@ fn row_to_json(r: &tokio_postgres::Row) -> serde_json::Value {
     })
 }
 
-fn slugify(s: &str) -> String {
-    s.to_lowercase()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect::<String>()
-        .split('-')
-        .filter(|p| !p.is_empty())
-        .collect::<Vec<_>>()
-        .join("-")
-}
-
-/// 出品idを、`seller_name`+`title`のハッシュを必ず付与して生成する。
-/// ASCII成分があれば読みやすさのためslugを前置するが、一意性の保証は
-/// 常にハッシュ側が担う(日本語名同士がslugify後にどちらも空文字へ
-/// 潰れて衝突する、というjob-site由来の実バグを踏まない設計)。
-pub fn make_service_id(seller_name: &str, title: &str) -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-
-    let mut hasher = DefaultHasher::new();
-    seller_name.hash(&mut hasher);
-    0u8.hash(&mut hasher); // 区切り: "ab"+"c" と "a"+"bc" のハッシュ衝突を避ける
-    title.hash(&mut hasher);
-    let hash = hasher.finish();
-
-    let seller_slug = slugify(seller_name);
-    let title_slug = slugify(title);
-    if seller_slug.is_empty() && title_slug.is_empty() {
-        format!("svc-{hash:016x}")
-    } else {
-        format!("{seller_slug}--{title_slug}-{hash:016x}")
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn make_service_id_does_not_collide_for_different_japanese_names() {
-        // job-site由来のslugify転用がそのまま日本語名に効いていたら、
-        // どちらも空文字同士の連結で衝突していたはずの組み合わせ。
-        let id_a = make_service_id("鈴木一郎", "ロゴ制作");
-        let id_b = make_service_id("佐藤花子", "ロゴ制作");
-        assert_ne!(id_a, id_b, "different Japanese seller names must not collide");
-    }
-
-    #[test]
-    fn make_service_id_is_deterministic_for_the_same_input() {
-        let id_a = make_service_id("鈴木一郎", "ロゴ制作");
-        let id_b = make_service_id("鈴木一郎", "ロゴ制作");
-        assert_eq!(id_a, id_b);
-    }
-
-    #[test]
-    fn make_service_id_prefixes_a_readable_slug_when_ascii_is_present() {
-        let id = make_service_id("Taro Suzuki", "Logo Design");
-        assert!(id.starts_with("taro-suzuki--logo-design-"), "got: {id}");
-    }
+    // id生成のテストは`crate::ids`側に集約済み(共通ヘルパー化に伴い移動)。
 
     #[test]
     fn validate_upsert_rejects_empty_required_fields() {

@@ -8,7 +8,9 @@
 //! 未着手(詳細は`CLAUDE.md`の「次にすべきこと」参照)。
 
 mod categories;
+mod ids;
 mod json_body;
+mod orders;
 mod page;
 mod reviews;
 mod services;
@@ -33,12 +35,15 @@ async fn main() -> anyhow::Result<()> {
     );
     services::ensure_table(&db).await?;
     reviews::ensure_table(&db).await?;
+    orders::ensure_table(&db).await?;
 
     let db_services_upsert = db.clone();
     let db_services_list = db.clone();
     let db_services_get = db.clone();
     let db_reviews_create = db.clone();
     let db_reviews_list = db.clone();
+    let db_orders_create = db.clone();
+    let db_orders_transition = db.clone();
 
     let app = Route::new()
         .at(
@@ -80,6 +85,20 @@ async fn main() -> anyhow::Result<()> {
             .get(handler_fn(move |req, params| {
                 let db = db_reviews_list.clone();
                 Box::pin(async move { reviews::list_reviews(req, params.into(), db).await })
+            })),
+        )
+        .at(
+            "/services/:id/orders",
+            post(handler_fn(move |req, params| {
+                let db = db_orders_create.clone();
+                Box::pin(async move { orders::create_order(req, params.into(), db).await })
+            })),
+        )
+        .at(
+            "/orders/:id/transition",
+            post(handler_fn(move |req, params| {
+                let db = db_orders_transition.clone();
+                Box::pin(async move { orders::transition_order(req, params.into(), db).await })
             })),
         );
 
