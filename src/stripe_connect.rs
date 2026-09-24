@@ -23,7 +23,7 @@ use open_runo_poem_compat::hyper_compat::json_response;
 use open_runo_poem_compat::{PathParams, Response, StatusCode};
 use serde_json::json;
 use stripe::{
-    Account, AccountLink, AccountLinkType, AccountType, CheckoutSession, CreateAccount, CreateAccountCapabilities,
+    Event, EventObject, Webhook, Account, AccountLink, AccountLinkType, AccountType, CheckoutSession, CreateAccount, CreateAccountCapabilities,
     CreateAccountCapabilitiesCardPayments, CreateAccountCapabilitiesTransfers, CreateAccountLink,
     CreateCheckoutSession, CreateCheckoutSessionLineItems, CreateCheckoutSessionLineItemsPriceData,
     CreateCheckoutSessionLineItemsPriceDataProductData, CreateCheckoutSessionPaymentIntentData,
@@ -193,6 +193,8 @@ pub async fn create_checkout_session(params: PathParams, db: Arc<AruaruDb>) -> R
     session_params.mode = Some(stripe::CheckoutSessionMode::Payment);
     session_params.success_url = Some(&success_url);
     session_params.cancel_url = Some(&cancel_url);
+    // Webhook(checkout.session.completed)で注文へ紐づけるための識別子。
+    session_params.client_reference_id = Some(&order_id);
     session_params.line_items = Some(vec![CreateCheckoutSessionLineItems {
         quantity: Some(1),
         price_data: Some(CreateCheckoutSessionLineItemsPriceData {
@@ -221,6 +223,65 @@ pub async fn create_checkout_session(params: PathParams, db: Arc<AruaruDb>) -> R
     }
 }
 
+/// `checkout.session.completed`かつ支払い済み(`paid`)のイベントから
+/// 注文idを取り出す(`create_checkout_session`が`client_reference_id`へ
+/// 設定した値)。それ以外のイベント・未払いは`None`。
+pub fn paid_order_id(event: &Event) -> Option<String> {
+    if event.type_ != stripe::EventType::CheckoutSessionCompleted {
+        return None;
+    }
+    match &event.data.object {
+        EventObject::CheckoutSession(session)
+            if session.payment_status == stripe::CheckoutSessionPaymentStatus::Paid =>
+        {
+            session.client_reference_id.clone()
+        }
+        _ => None,
+    }
+}
+
+/// `POST /stripe/webhook`: 署名検証(`STRIPE_WEBHOOK_SECRET`)後、支払い
+/// 済みの注文を`pending`→`completed`へ自動遷移する。`WHERE status =
+/// 'pending'`付きUPDATEのため、Stripeの再送(同一イベントの複数回配信)
+/// でも冪等。
+pub async fn webhook(req: open_runo_poem_compat::Request, db: Arc<AruaruDb>) -> Response {
+    use http_body_util::BodyExt;
+
+    let Ok(secret) = std::env::var("STRIPE_WEBHOOK_SECRET") else {
+        return json_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &json!({ "error": "STRIPE_WEBHOOK_SECRET is not configured" }),
+        );
+    };
+    let Some(signature) = req.headers().get("stripe-signature").and_then(|v| v.to_str().ok()).map(str::to_string)
+    else {
+        return json_response(StatusCode::BAD_REQUEST, &json!({"error": "missing Stripe-Signature header"}));
+    };
+    let bytes = match req.into_body().collect().await {
+        Ok(c) => c.to_bytes(),
+        Err(_) => return json_response(StatusCode::BAD_REQUEST, &json!({"error": "failed to read body"})),
+    };
+    let Ok(payload) = String::from_utf8(bytes.to_vec()) else {
+        return json_response(StatusCode::BAD_REQUEST, &json!({"error": "body is not valid UTF-8"}));
+    };
+    let event = match Webhook::construct_event(&payload, &signature, &secret) {
+        Ok(e) => e,
+        Err(e) => return json_response(StatusCode::BAD_REQUEST, &json!({"error": format!("invalid signature: {e}")})),
+    };
+
+    if let Some(order_id) = paid_order_id(&event) {
+        if let Err(e) =
+            db.execute("UPDATE orders SET status = 'completed' WHERE id = $1 AND status = 'pending'", &[&order_id]).await
+        {
+            return json_response(StatusCode::INTERNAL_SERVER_ERROR, &json!({"error": e.to_string()}));
+        }
+        if let Err(e) = db.commit("order completed via stripe webhook").await {
+            return json_response(StatusCode::INTERNAL_SERVER_ERROR, &json!({"error": e.to_string()}));
+        }
+    }
+    json_response(StatusCode::OK, &json!({ "received": true }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -239,5 +300,35 @@ mod tests {
         // 確認——具体的な他社料率はここでは断定しない)。
         let price = 10_000;
         assert!(platform_fee_yen(price) < price / 5);
+    }
+
+    #[test]
+    fn paid_order_id_ignores_unrelated_events() {
+        let json = r#"{"id":"evt_1","object":"event","api_version":"2020-08-27","created":1,"livemode":false,
+            "pending_webhooks":0,"type":"customer.created","data":{"object":{"id":"cus_1","object":"customer"}}}"#;
+        let event: Event = serde_json::from_str(json).expect("event must deserialize");
+        assert_eq!(paid_order_id(&event), None);
+    }
+
+    #[test]
+    fn paid_order_id_extracts_client_reference_id_from_a_paid_completed_session() {
+        let json = r#"{"id":"evt_2","object":"event","api_version":"2020-08-27","created":1,"livemode":false,
+            "pending_webhooks":0,"type":"checkout.session.completed","data":{"object":{
+            "id":"cs_1","object":"checkout.session","payment_status":"paid","client_reference_id":"order-abc",
+            "mode":"payment","automatic_tax":{"enabled":false},"payment_method_types":["card"],
+            "shipping_options":[],"custom_fields":[],"custom_text":{},"livemode":false,"created":1,"expires_at":2}}}"#;
+        let event: Event = serde_json::from_str(json).expect("event must deserialize");
+        assert_eq!(paid_order_id(&event), Some("order-abc".to_string()));
+    }
+
+    #[test]
+    fn paid_order_id_ignores_unpaid_sessions() {
+        let json = r#"{"id":"evt_3","object":"event","api_version":"2020-08-27","created":1,"livemode":false,
+            "pending_webhooks":0,"type":"checkout.session.completed","data":{"object":{
+            "id":"cs_2","object":"checkout.session","payment_status":"unpaid","client_reference_id":"order-abc",
+            "mode":"payment","automatic_tax":{"enabled":false},"payment_method_types":["card"],
+            "shipping_options":[],"custom_fields":[],"custom_text":{},"livemode":false,"created":1,"expires_at":2}}}"#;
+        let event: Event = serde_json::from_str(json).expect("event must deserialize");
+        assert_eq!(paid_order_id(&event), None);
     }
 }

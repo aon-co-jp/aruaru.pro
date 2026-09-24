@@ -49,6 +49,8 @@ async fn main() -> anyhow::Result<()> {
     career_agent_programs::ensure_table(&db).await?;
 
     let db_auth_register = db.clone();
+    let db_auth_logout = db.clone();
+    let db_stripe_webhook = db.clone();
     let db_oauth_start = db.clone();
     let db_oauth_callback = db.clone();
     let db_categories_list = db.clone();
@@ -168,6 +170,20 @@ async fn main() -> anyhow::Result<()> {
             post(handler_fn(move |req, _p| {
                 let db = db_auth_register.clone();
                 Box::pin(async move { auth::register(req, db).await })
+            })),
+        )
+        .at(
+            "/auth/logout",
+            post(handler_fn(move |req, _p| {
+                let db = db_auth_logout.clone();
+                Box::pin(async move { auth::logout(req, db).await })
+            })),
+        )
+        .at(
+            "/stripe/webhook",
+            post(handler_fn(move |req, _p| {
+                let db = db_stripe_webhook.clone();
+                Box::pin(async move { stripe_connect::webhook(req, db).await })
             })),
         )
         .at(

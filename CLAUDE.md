@@ -240,10 +240,31 @@ XのOAuth認証は実装して」に基づき`src/oauth.rs`を新設。
   ため、以前は`open-runo-router`経由の推移的依存にしか無かった)。
 - テスト2件追加、`cargo test`45件全green・警告0件。
 
+## 2026-09-24 続き4: Stripe Webhook・ログアウト
+
+- **`POST /stripe/webhook`**(`stripe_connect::webhook`): `Stripe-Signature`
+  を`STRIPE_WEBHOOK_SECRET`で検証(`async-stripe`の`webhook-events`
+  feature、署名不一致・5分超の古いタイムスタンプは400)。
+  `checkout.session.completed`かつ`payment_status = paid`のとき、
+  `client_reference_id`(`create_checkout_session`が注文idを設定する
+  ように変更)の注文を`UPDATE ... WHERE status = 'pending'`で
+  `completed`へ遷移(Stripeの再送でも冪等)。これでレビュー投稿の前提
+  (完了済み注文)が決済完了から自動で満たされる。
+- **`POST /auth/logout`**(`auth::logout`): セッション行を削除し
+  `Set-Cookie ... Max-Age=0`で即時失効(冪等)。
+- テスト3件追加(`paid_order_id`: 無関係イベント無視・支払い済み
+  セッションから注文id抽出・未払い無視)、`cargo test`48件全green。
+- **開発環境メモ**: `async-stripe`(webhook-events込み)のコンパイルで
+  rustcが`STATUS_STACK_BUFFER_OVERRUN`/fork失敗になることがあった
+  (メモリ逼迫)。`CARGO_BUILD_JOBS=2`で並列度を下げると通る。
+- **正直な開示**: 署名検証自体はasync-stripeの実装に委ねており、
+  実際のStripeからの配信(署名付きリクエスト)での往復は未検証。
+
 ## 次にすべきこと
 
-1. Stripe Webhook(決済完了通知→注文の`completed`遷移の自動化、
-   現状は`POST /orders/:id/transition`を手動で呼ぶ想定)。
+1. StripeのテストモードAPIキー+`stripe listen`(Stripe CLI)での
+   Webhook込みの実機検証(オンボーディング→チェックアウト→Webhook→
+   注文`completed`の一連)。
 2. StripeのテストモードAPIキーでの実機検証(オンボーディング〜
    チェックアウトの一連の流れを実際に動かして確認)。
 3. Google/Facebook/X各プロバイダで実際にOAuthアプリを登録し
@@ -255,8 +276,6 @@ XのOAuth認証は実装して」に基づき`src/oauth.rs`を新設。
 5. インタラクティブなUI(カテゴリ絞り込み検索等)が必要になった時点で
    RS-Reactの`App::tick`(状態変化への追従・再レンダー)を実際に使う
    ——現状のカテゴリ一覧ページはまだ静的なSSRのみ。
-6. セッションの明示的ログアウト(`DELETE /auth/session`的なエンドポイント
-   でセッション行を削除する)が未実装——現状は有効期限切れを待つのみ。
 
 ## OAuthアプリ登録手順(ユーザー自身の作業、2026-09-13)
 
