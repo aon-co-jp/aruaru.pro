@@ -114,6 +114,25 @@ pub async fn issue_session(db: &AruaruDb, user_token: &str, mut resp: Response) 
     resp
 }
 
+/// `POST /auth/logout`: セッション行をDBから削除し、Cookieを即時失効
+/// (`Max-Age=0`)させる。セッションが無い/期限切れでも成功扱い(冪等)。
+pub async fn logout(req: Request, db: Arc<AruaruDb>) -> Response {
+    if let Some(session_id) = read_session_cookie(&req) {
+        if let Err(e) = db.execute("DELETE FROM sessions WHERE session_id = $1", &[&session_id]).await {
+            return json_response(StatusCode::INTERNAL_SERVER_ERROR, &json!({"error": e.to_string()}));
+        }
+        if let Err(e) = db.commit("session revoked").await {
+            return json_response(StatusCode::INTERNAL_SERVER_ERROR, &json!({"error": e.to_string()}));
+        }
+    }
+    let mut resp = json_response(StatusCode::OK, &json!({ "logged_out": true }));
+    let cookie = format!("{SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0");
+    if let Ok(value) = HeaderValue::from_str(&cookie) {
+        resp.headers_mut().insert(SET_COOKIE, value);
+    }
+    resp
+}
+
 fn read_session_cookie(req: &Request) -> Option<String> {
     let header = req.headers().get(COOKIE)?.to_str().ok()?;
     for pair in header.split(';') {
