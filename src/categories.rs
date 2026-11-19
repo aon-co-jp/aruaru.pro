@@ -94,28 +94,32 @@ pub fn static_category_tree() -> Vec<CategoryTreeRow> {
 
 pub async fn ensure_table_and_seed(db: &aruaru_db_connector::AruaruDb) -> anyhow::Result<()> {
     db.execute(
-        "CREATE TABLE IF NOT EXISTS categories (name TEXT PRIMARY KEY, parent_name TEXT, position INTEGER)",
+        "CREATE TABLE IF NOT EXISTS categories (name TEXT PRIMARY KEY, parent_name TEXT, position BIGINT)",
         &[],
     )
     .await
     .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     for (top_position, cat) in CATEGORIES.iter().enumerate() {
-        let top_position = top_position as i32;
+        let top_position = top_position as i64;
         db.execute(
-            "INSERT INTO categories (name, parent_name, position) VALUES ($1, NULL, $2) \
-             ON CONFLICT (name) DO NOTHING",
-            &[&cat.name, &top_position],
+            &format!(
+                "INSERT INTO categories (name, parent_name, position) VALUES ($1, NULL, {top_position}) \
+                 ON CONFLICT (name) DO NOTHING"
+            ),
+            &[&cat.name],
         )
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
 
         for (child_position, child) in cat.children.iter().enumerate() {
-            let child_position = child_position as i32;
+            let child_position = child_position as i64;
             db.execute(
-                "INSERT INTO categories (name, parent_name, position) VALUES ($1, $2, $3) \
-                 ON CONFLICT (name) DO NOTHING",
-                &[child, &cat.name, &child_position],
+                &format!(
+                    "INSERT INTO categories (name, parent_name, position) VALUES ($1, $2, {child_position}) \
+                     ON CONFLICT (name) DO NOTHING"
+                ),
+                &[child, &cat.name],
             )
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -129,7 +133,7 @@ pub async fn ensure_table_and_seed(db: &aruaru_db_connector::AruaruDb) -> anyhow
 /// カテゴリ検証で、まずコンパイル時定数を高速に確認し、無ければこちらへ
 /// フォールバックする使い方を想定)。
 pub async fn category_exists_in_db(db: &aruaru_db_connector::AruaruDb, name: &str) -> Result<bool, String> {
-    db.query("SELECT 1 FROM categories WHERE name = $1 LIMIT 1", &[&name])
+    db.query("SELECT name FROM categories WHERE name = $1", &[&name])
         .await
         .map(|rows| !rows.is_empty())
         .map_err(|e| e.to_string())
@@ -139,16 +143,19 @@ pub async fn category_exists_in_db(db: &aruaru_db_connector::AruaruDb, name: &st
 /// ソートすることで、シード時の(=ユーザー提示リストの)並び順を保つ。
 pub async fn load_category_tree(db: &aruaru_db_connector::AruaruDb) -> Result<Vec<CategoryTreeRow>, String> {
     let rows = db
-        .query("SELECT name, parent_name FROM categories ORDER BY position", &[])
+        .query("SELECT name, parent_name, position FROM categories", &[])
         .await
         .map_err(|e| e.to_string())?;
+    // aruaru-dbは`ORDER BY`未対応のため、位置での並べ替えはRust側で行う。
+    let mut rows = rows;
+    rows.sort_by_key(|r| r.get::<_, String>(2).parse::<i64>().unwrap_or(0));
 
     let mut top: Vec<CategoryTreeRow> = Vec::new();
     let mut children_by_parent: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
 
     for row in &rows {
         let name: String = row.get(0);
-        let parent_name: Option<String> = row.get(1);
+        let parent_name: Option<String> = row.get::<_, Option<String>>(1).filter(|p| p != "NULL"); // aruaru-dbはNULLを文字列"NULL"で返す
         match parent_name {
             None => top.push(CategoryTreeRow { name, children: Vec::new() }),
             Some(parent) => children_by_parent.entry(parent).or_default().push(name),

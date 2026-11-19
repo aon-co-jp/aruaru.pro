@@ -19,7 +19,7 @@ pub async fn ensure_table(db: &AruaruDb) -> anyhow::Result<()> {
             id TEXT PRIMARY KEY, \
             service_id TEXT, \
             reviewer_name TEXT, \
-            rating INTEGER, \
+            rating BIGINT, \
             comment TEXT\
         )",
         &[],
@@ -32,7 +32,7 @@ pub async fn ensure_table(db: &AruaruDb) -> anyhow::Result<()> {
 #[derive(Debug, Deserialize)]
 pub struct CreateReviewRequest {
     reviewer_name: String,
-    rating: i32,
+    rating: i64,
     comment: String,
     #[serde(default = "default_commit_message")]
     message: String,
@@ -113,8 +113,11 @@ pub async fn create_review(req: Request, params: PathParams, db: Arc<AruaruDb>) 
 
     if let Err(e) = db
         .execute(
-            "INSERT INTO reviews (id, service_id, reviewer_name, rating, comment) VALUES ($1, $2, $3, $4, $5)",
-            &[&id, &service_id, &body.reviewer_name, &body.rating, &body.comment],
+            &format!(
+                "INSERT INTO reviews (id, service_id, reviewer_name, rating, comment) VALUES ($1, $2, $3, {}, $4)",
+                body.rating
+            ),
+            &[&id, &service_id, &body.reviewer_name, &body.comment],
         )
         .await
     {
@@ -147,7 +150,7 @@ pub async fn list_reviews(_req: Request, params: PathParams, db: Arc<AruaruDb>) 
                     json!({
                         "id": r.get::<_, String>(0),
                         "reviewer_name": r.get::<_, String>(1),
-                        "rating": r.get::<_, i32>(2),
+                        "rating": r.get::<_, String>(2).parse::<i64>().unwrap_or(0),
                         "comment": r.get::<_, String>(3),
                     })
                 })

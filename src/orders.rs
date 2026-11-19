@@ -164,13 +164,14 @@ pub async fn transition_order(req: Request, params: PathParams, db: Arc<AruaruDb
 /// 1件も無ければ`false`(まだ`false`と`存在しない`を区別する必要は無い
 /// ——呼び出し側は等しく「投稿不可」として扱う)。
 pub async fn order_is_completed_by(db: &AruaruDb, service_id: &str, buyer_name: &str) -> Result<bool, String> {
-    db.query(
-        "SELECT 1 FROM orders WHERE service_id = $1 AND buyer_name = $2 AND status = 'completed' LIMIT 1",
-        &[&service_id, &buyer_name],
-    )
-    .await
-    .map(|rows| !rows.is_empty())
-    .map_err(|e| e.to_string())
+    // aruaru-dbはWHEREの`AND`連結を正しく扱えないため、条件1つで絞って
+    // 残りはRust側で判定する。
+    db.query("SELECT buyer_name, status FROM orders WHERE service_id = $1", &[&service_id])
+        .await
+        .map(|rows| {
+            rows.iter().any(|r| r.get::<_, String>(0) == buyer_name && r.get::<_, String>(1) == "completed")
+        })
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

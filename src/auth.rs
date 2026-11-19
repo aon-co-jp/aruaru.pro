@@ -56,15 +56,8 @@ pub async fn ensure_table(db: &AruaruDb) -> anyhow::Result<()> {
     )
     .await
     .map_err(|e| anyhow::anyhow!("{e}"))?;
-    // 既存テーブル(OAuth新設前に作成済みのもの)への追従。Postgresの
-    // `ADD COLUMN IF NOT EXISTS`は冪等なので複数回実行しても安全。
-    for stmt in [
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT",
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS oauth_provider TEXT",
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS oauth_subject TEXT",
-    ] {
-        db.execute(stmt, &[]).await.map_err(|e| anyhow::anyhow!("{e}"))?;
-    }
+    // 注意: aruaru-dbは`ALTER TABLE`未対応のため、列は上のCREATE TABLEに
+    // 最初から含めている(OAuth新設前の古いDBは作り直しが必要)。
     // Cookieセッション(DB永続化、プロセス再起動・マルチインスタンス
     // 構成でも機能する——`aruaru-db`への接続を持つプロセスなら誰でも
     // 同じセッションを検証できる)。
@@ -94,8 +87,11 @@ pub async fn issue_session(db: &AruaruDb, user_token: &str, mut resp: Response) 
     let session_id = crate::ids::make_token();
     if let Err(e) = db
         .execute(
-            "INSERT INTO sessions (session_id, user_token, created_at) VALUES ($1, $2, $3)",
-            &[&session_id, &user_token, &now_unix()],
+            &format!(
+                "INSERT INTO sessions (session_id, user_token, created_at) VALUES ($1, $2, {})",
+                now_unix()
+            ),
+            &[&session_id, &user_token],
         )
         .await
     {
@@ -153,7 +149,7 @@ async fn resolve_session_token(db: &AruaruDb, session_id: &str) -> Result<Option
         .map_err(|e| e.to_string())?;
     let Some(row) = rows.into_iter().next() else { return Ok(None) };
     let user_token: String = row.get(0);
-    let created_at: i64 = row.get(1);
+    let created_at: i64 = row.get::<_, String>(1).parse().unwrap_or(0);
     if now_unix() - created_at > SESSION_MAX_AGE_SECONDS {
         return Ok(None);
     }

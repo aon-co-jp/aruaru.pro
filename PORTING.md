@@ -26,7 +26,7 @@ Claude の記憶は引き継がれない前提で、必要なことをすべて�
 | コード | 出品・注文・レビュー・求人・転職エージェント・認証(OAuth/Cookie)・Stripe Connect・Webhook まで実装済み、push 済み(`1107dbc`) |
 | テスト | `cargo test` 48 件成功 |
 | VPS ビルド | WSL で release ビルド(`.build-wsl.sh`、出力 `~/aruaru-pro-target/release/aruaru-pro`) |
-| VPS 配置 | 未了(下記) |
+| VPS 配置 | **済み**: `aruaru-pro.service`(`127.0.0.1:8143`)+専用DB `aruaru-pro-db.service`(`127.0.0.1:15435`)。`/healthz`・`/categories`・`/`・出品/注文/レビュー/求人/研修/ログアウトを実測。`.deploy-vps.sh`で再配備 |
 | 公開 DNS | **未了**: `aruaru.pro` に A レコードが無い(NS は ConoHa DNS)。VPS の IPv4 は `160.251.237.162` |
 | Google 登録 | クライアント作成済み。リダイレクト URI `https://aruaru.pro/auth/oauth/google/callback` の追加は本人の作業 |
 | 実機ログイン往復 | 未検証 |
@@ -34,7 +34,7 @@ Claude の記憶は引き継がれない前提で、必要なことをすべて�
 ### 次にやること(この順)
 
 1. **本人の作業**: ConoHa の DNS で `aruaru.pro`(と必要なら `www`)に A レコード `160.251.237.162` を追加。Google コンソールの OAuth クライアントに上記リダイレクト URI を追加。
-2. VPS に配置(新規の置き場所): バイナリを `/root/aruaru.pro/aruaru-pro` へ、設定を `/etc/aruaru-pro/aruaru-pro.env`(権限 600)へ置き、`aruaru-pro.service`(`127.0.0.1:8143`)を作る。VPS は 4 コアなので、負荷をかける試験はしない(配備と実測確認だけ)。
+2. (済み)VPS に配置: バイナリを `/root/aruaru.pro/aruaru-pro` へ、設定を `/etc/aruaru-pro/aruaru-pro.env`(権限 600)へ置き、`aruaru-pro.service`(`127.0.0.1:8143`)を作る。VPS は 4 コアなので、負荷をかける試験はしない(配備と実測確認だけ)。
 3. 前面の `open-web-server` の `/root/open-web-server/domains.toml` に `aruaru.pro` を追記(`backend_addr = "127.0.0.1:8143"`)。先にバックアップを取り、DNS が引けてから追記して証明書を取得する。
 4. 実機で Google ログインの往復を確認(`/auth/oauth/google/start` → 認可 → `callback` → `aruaru_session` Cookie)。
 5. Stripe のテストキーと `stripe listen` で、オンボーディング → チェックアウト → Webhook → 注文 `completed` を通す。
@@ -75,7 +75,7 @@ Assume Claude's memory is lost; everything needed is written here.
 | Code | Listings, orders, reviews, jobs, career-agent programs, auth (OAuth / cookies), Stripe Connect and webhook are implemented and pushed (`1107dbc`) |
 | Tests | 48 `cargo test` tests pass |
 | VPS build | Release build in WSL (`.build-wsl.sh`, output `~/aruaru-pro-target/release/aruaru-pro`) |
-| VPS placement | Not done yet (see below) |
+| VPS placement | **Done**: `aruaru-pro.service` (`127.0.0.1:8143`) plus a dedicated DB `aruaru-pro-db.service` (`127.0.0.1:15435`). Verified `/healthz`, `/categories`, `/`, listings / orders / reviews / jobs / programs / logout. Redeploy with `.deploy-vps.sh` |
 | Public DNS | **Not done**: `aruaru.pro` has no A record (name servers are ConoHa DNS). The VPS IPv4 is `160.251.237.162` |
 | Google registration | Client created. Adding the redirect URI `https://aruaru.pro/auth/oauth/google/callback` is the owner's job |
 | Real login round trip | Not verified |
@@ -83,7 +83,7 @@ Assume Claude's memory is lost; everything needed is written here.
 ### Next steps (in this order)
 
 1. **Owner's task**: in ConoHa DNS add an A record `160.251.237.162` for `aruaru.pro` (and `www` if wanted). In the Google console add the redirect URI above to the OAuth client.
-2. Place it on the VPS (new location): binary at `/root/aruaru.pro/aruaru-pro`, settings in `/etc/aruaru-pro/aruaru-pro.env` (mode 600), and an `aruaru-pro.service` (`127.0.0.1:8143`). The VPS has 4 cores, so do no load tests (deploy and verify only).
+2. (Done) Place it on the VPS: binary at `/root/aruaru.pro/aruaru-pro`, settings in `/etc/aruaru-pro/aruaru-pro.env` (mode 600), and an `aruaru-pro.service` (`127.0.0.1:8143`). The VPS has 4 cores, so do no load tests (deploy and verify only).
 3. Add `aruaru.pro` to the front `open-web-server`'s `/root/open-web-server/domains.toml` (`backend_addr = "127.0.0.1:8143"`). Back it up first, and add it only once DNS resolves so the certificate can be issued.
 4. Verify the Google login round trip on the real site (`/auth/oauth/google/start` → consent → `callback` → `aruaru_session` cookie).
 5. With Stripe test keys and `stripe listen`, run onboarding → checkout → webhook → order `completed`.

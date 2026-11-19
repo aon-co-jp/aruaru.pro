@@ -24,7 +24,7 @@ pub async fn ensure_table(db: &AruaruDb) -> anyhow::Result<()> {
             category TEXT, \
             title TEXT, \
             description TEXT, \
-            price_yen INTEGER\
+            price_yen BIGINT\
         )",
         &[],
     )
@@ -39,7 +39,7 @@ pub struct UpsertServiceRequest {
     category: String,
     title: String,
     description: String,
-    price_yen: i32,
+    price_yen: i64,
     #[serde(default = "default_commit_message")]
     message: String,
 }
@@ -133,12 +133,15 @@ pub async fn upsert_service(req: Request, db: Arc<AruaruDb>) -> Response {
 
     if let Err(e) = db
         .execute(
-            "INSERT INTO services (id, seller_name, category, title, description, price_yen) \
-             VALUES ($1, $2, $3, $4, $5, $6) \
-             ON CONFLICT (id) DO UPDATE SET seller_name = EXCLUDED.seller_name, \
-             category = EXCLUDED.category, title = EXCLUDED.title, \
-             description = EXCLUDED.description, price_yen = EXCLUDED.price_yen",
-            &[&id, &body.seller_name, &body.category, &body.title, &body.description, &body.price_yen],
+            &format!(
+                "INSERT INTO services (id, seller_name, category, title, description, price_yen) \
+                 VALUES ($1, $2, $3, $4, $5, {}) \
+                 ON CONFLICT (id) DO UPDATE SET seller_name = EXCLUDED.seller_name, \
+                 category = EXCLUDED.category, title = EXCLUDED.title, \
+                 description = EXCLUDED.description, price_yen = EXCLUDED.price_yen",
+                body.price_yen
+            ),
+            &[&id, &body.seller_name, &body.category, &body.title, &body.description],
         )
         .await
     {
@@ -186,7 +189,7 @@ fn row_to_json(r: &tokio_postgres::Row) -> serde_json::Value {
         "category": r.get::<_, String>(2),
         "title": r.get::<_, String>(3),
         "description": r.get::<_, String>(4),
-        "price_yen": r.get::<_, i32>(5),
+        "price_yen": r.get::<_, String>(5).parse::<i64>().unwrap_or(0),
     })
 }
 

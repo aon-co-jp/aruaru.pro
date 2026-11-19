@@ -162,7 +162,7 @@ pub async fn create_checkout_session(params: PathParams, db: Arc<AruaruDb>) -> R
     };
     let seller_name: String = service_row.get(0);
     let title: String = service_row.get(1);
-    let price_yen: i32 = service_row.get(2);
+    let price_yen: i64 = service_row.get::<_, String>(2).parse().unwrap_or(0);
 
     let seller_account_id = match db
         .query("SELECT stripe_account_id FROM seller_stripe_accounts WHERE seller_name = $1", &[&seller_name])
@@ -270,13 +270,19 @@ pub async fn webhook(req: open_runo_poem_compat::Request, db: Arc<AruaruDb>) -> 
     };
 
     if let Some(order_id) = paid_order_id(&event) {
-        if let Err(e) =
-            db.execute("UPDATE orders SET status = 'completed' WHERE id = $1 AND status = 'pending'", &[&order_id]).await
-        {
-            return json_response(StatusCode::INTERNAL_SERVER_ERROR, &json!({"error": e.to_string()}));
-        }
-        if let Err(e) = db.commit("order completed via stripe webhook").await {
-            return json_response(StatusCode::INTERNAL_SERVER_ERROR, &json!({"error": e.to_string()}));
+        // aruaru-dbはWHEREの`AND`連結を正しく扱えないため、現在の状態を先に読み、
+        // 保留中(pending)のときだけ更新する(Stripeの再送でも冪等)。
+        let is_pending = match db.query("SELECT status FROM orders WHERE id = $1", &[&order_id]).await {
+            Ok(rows) => rows.first().map(|r| r.get::<_, String>(0) == "pending").unwrap_or(false),
+            Err(e) => return json_response(StatusCode::INTERNAL_SERVER_ERROR, &json!({"error": e.to_string()})),
+        };
+        if is_pending {
+            if let Err(e) = db.execute("UPDATE orders SET status = 'completed' WHERE id = $1", &[&order_id]).await {
+                return json_response(StatusCode::INTERNAL_SERVER_ERROR, &json!({"error": e.to_string()}));
+            }
+            if let Err(e) = db.commit("order completed via stripe webhook").await {
+                return json_response(StatusCode::INTERNAL_SERVER_ERROR, &json!({"error": e.to_string()}));
+            }
         }
     }
     json_response(StatusCode::OK, &json!({ "received": true }))

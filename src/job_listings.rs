@@ -27,7 +27,7 @@ pub async fn ensure_table(db: &AruaruDb) -> anyhow::Result<()> {
             description TEXT, \
             location TEXT, \
             employment_type TEXT, \
-            hourly_wage_yen INTEGER\
+            hourly_wage_yen BIGINT\
         )",
         &[],
     )
@@ -43,7 +43,7 @@ pub struct UpsertJobListingRequest {
     description: String,
     location: String,
     employment_type: String,
-    hourly_wage_yen: i32,
+    hourly_wage_yen: i64,
     #[serde(default = "default_commit_message")]
     message: String,
 }
@@ -115,13 +115,16 @@ pub async fn upsert_job_listing(req: Request, db: Arc<AruaruDb>) -> Response {
 
     if let Err(e) = db
         .execute(
-            "INSERT INTO job_listings \
-             (id, employer_name, title, description, location, employment_type, hourly_wage_yen) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7) \
-             ON CONFLICT (id) DO UPDATE SET employer_name = EXCLUDED.employer_name, \
-             title = EXCLUDED.title, description = EXCLUDED.description, \
-             location = EXCLUDED.location, employment_type = EXCLUDED.employment_type, \
-             hourly_wage_yen = EXCLUDED.hourly_wage_yen",
+            &format!(
+                "INSERT INTO job_listings \
+                 (id, employer_name, title, description, location, employment_type, hourly_wage_yen) \
+                 VALUES ($1, $2, $3, $4, $5, $6, {}) \
+                 ON CONFLICT (id) DO UPDATE SET employer_name = EXCLUDED.employer_name, \
+                 title = EXCLUDED.title, description = EXCLUDED.description, \
+                 location = EXCLUDED.location, employment_type = EXCLUDED.employment_type, \
+                 hourly_wage_yen = EXCLUDED.hourly_wage_yen",
+                body.hourly_wage_yen
+            ),
             &[
                 &id,
                 &body.employer_name,
@@ -129,7 +132,6 @@ pub async fn upsert_job_listing(req: Request, db: Arc<AruaruDb>) -> Response {
                 &body.description,
                 &body.location,
                 &body.employment_type,
-                &body.hourly_wage_yen,
             ],
         )
         .await
@@ -190,7 +192,7 @@ fn row_to_json(r: &tokio_postgres::Row) -> serde_json::Value {
         "description": r.get::<_, String>(3),
         "location": r.get::<_, String>(4),
         "employment_type": r.get::<_, String>(5),
-        "hourly_wage_yen": r.get::<_, i32>(6),
+        "hourly_wage_yen": r.get::<_, String>(6).parse::<i64>().unwrap_or(0),
     })
 }
 

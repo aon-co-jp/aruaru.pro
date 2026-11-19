@@ -36,7 +36,7 @@ pub async fn ensure_table(db: &AruaruDb) -> anyhow::Result<()> {
             agent_name TEXT, \
             program_name TEXT, \
             description TEXT, \
-            training_weeks INTEGER, \
+            training_weeks BIGINT, \
             target_job_type TEXT, \
             is_free_for_trainee BOOLEAN\
         )",
@@ -52,7 +52,7 @@ pub struct UpsertProgramRequest {
     agent_name: String,
     program_name: String,
     description: String,
-    training_weeks: i32,
+    training_weeks: i64,
     target_job_type: String,
     #[serde(default = "default_is_free")]
     is_free_for_trainee: bool,
@@ -128,21 +128,22 @@ pub async fn upsert_program(req: Request, db: Arc<AruaruDb>) -> Response {
 
     if let Err(e) = db
         .execute(
-            "INSERT INTO career_agent_programs \
-             (id, agent_name, program_name, description, training_weeks, target_job_type, is_free_for_trainee) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7) \
-             ON CONFLICT (id) DO UPDATE SET agent_name = EXCLUDED.agent_name, \
-             program_name = EXCLUDED.program_name, description = EXCLUDED.description, \
-             training_weeks = EXCLUDED.training_weeks, target_job_type = EXCLUDED.target_job_type, \
-             is_free_for_trainee = EXCLUDED.is_free_for_trainee",
+            &format!(
+                "INSERT INTO career_agent_programs \
+                 (id, agent_name, program_name, description, training_weeks, target_job_type, is_free_for_trainee) \
+                 VALUES ($1, $2, $3, $4, {}, $5, {}) \
+                 ON CONFLICT (id) DO UPDATE SET agent_name = EXCLUDED.agent_name, \
+                 program_name = EXCLUDED.program_name, description = EXCLUDED.description, \
+                 training_weeks = EXCLUDED.training_weeks, target_job_type = EXCLUDED.target_job_type, \
+                 is_free_for_trainee = EXCLUDED.is_free_for_trainee",
+                body.training_weeks, body.is_free_for_trainee
+            ),
             &[
                 &id,
                 &body.agent_name,
                 &body.program_name,
                 &body.description,
-                &body.training_weeks,
                 &body.target_job_type,
-                &body.is_free_for_trainee,
             ],
         )
         .await
@@ -201,9 +202,9 @@ fn row_to_json(r: &tokio_postgres::Row) -> serde_json::Value {
         "agent_name": r.get::<_, String>(1),
         "program_name": r.get::<_, String>(2),
         "description": r.get::<_, String>(3),
-        "training_weeks": r.get::<_, i32>(4),
+        "training_weeks": r.get::<_, String>(4).parse::<i64>().unwrap_or(0),
         "target_job_type": r.get::<_, String>(5),
-        "is_free_for_trainee": r.get::<_, bool>(6),
+        "is_free_for_trainee": matches!(r.get::<_, String>(6).as_str(), "t" | "true" | "TRUE"),
     })
 }
 

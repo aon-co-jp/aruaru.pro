@@ -171,15 +171,21 @@ async fn store_pending_auth(db: &AruaruDb, state: &str, pending: &PendingAuth) -
     // `start`のたびに期限切れエントリを削除する(軽量、テーブルが無限に
     // 肥大化することを防ぐ)。
     db.execute(
-        "DELETE FROM oauth_pending_states WHERE created_at < $1",
-        &[&(now_unix() - PENDING_STATE_MAX_AGE_SECONDS)],
+        &format!(
+            "DELETE FROM oauth_pending_states WHERE created_at < {}",
+            now_unix() - PENDING_STATE_MAX_AGE_SECONDS
+        ),
+        &[],
     )
     .await
     .map_err(|e| e.to_string())?;
 
     db.execute(
-        "INSERT INTO oauth_pending_states (state, role, pkce_verifier, created_at) VALUES ($1, $2, $3, $4)",
-        &[&state, &pending.role, &pending.pkce_verifier, &now_unix()],
+        &format!(
+            "INSERT INTO oauth_pending_states (state, role, pkce_verifier, created_at) VALUES ($1, $2, $3, {})",
+            now_unix()
+        ),
+        &[&state, &pending.role, &pending.pkce_verifier],
     )
     .await
     .map_err(|e| e.to_string())?;
@@ -202,8 +208,8 @@ async fn take_pending_auth(db: &AruaruDb, state: &str) -> Result<Option<PendingA
     db.commit("oauth pending state consumed").await.map_err(|e| e.to_string())?;
 
     let role: String = row.get(0);
-    let pkce_verifier: Option<String> = row.get(1);
-    let created_at: i64 = row.get(2);
+    let pkce_verifier: Option<String> = row.get::<_, Option<String>>(1).filter(|p| p != "NULL");
+    let created_at: i64 = row.get::<_, String>(2).parse().unwrap_or(0);
     if now_unix() - created_at > PENDING_STATE_MAX_AGE_SECONDS {
         return Ok(None);
     }
@@ -528,13 +534,14 @@ async fn upsert_oauth_user(
 ) -> Result<(String, String, String), String> {
     let existing = db
         .query(
-            "SELECT name, role, token FROM users WHERE oauth_provider = $1 AND oauth_subject = $2",
-            &[&provider.as_str(), &identity.subject],
+            "SELECT name, role, token, oauth_provider FROM users WHERE oauth_subject = $1",
+            &[&identity.subject],
         )
         .await
         .map_err(|e| e.to_string())?;
 
-    if let Some(row) = existing.into_iter().next() {
+    // aruaru-dbはWHEREの`AND`連結を正しく扱えないため、プロバイダの一致はRust側で見る。
+    if let Some(row) = existing.into_iter().find(|r| r.get::<_, String>(3) == provider.as_str()) {
         return Ok((row.get(0), row.get(1), row.get(2)));
     }
 

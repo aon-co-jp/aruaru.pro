@@ -439,3 +439,15 @@ XのOAuth認証は実装して」に基づき`src/oauth.rs`を新設。
 - **Gap with policy**: the current routes are REST-style; they will move to Connect per the ecosystem policy (REST abolition). No new REST is added (OAuth callback, Stripe webhook and `/healthz` are exceptions).
 - Items 1 and 2 of the older "次にすべきこと" list above are duplicates (Stripe live verification).
 - A PATH with parentheses breaks the build when passed into WSL; run it from a script file such as `.build-wsl.sh`.
+
+### aruaru-dbの方言メモ(2026-11-19、VPSの実機で確認)
+- 未対応: `ALTER TABLE`、`ORDER BY`、`LIMIT`、`SELECT 1`、`WHERE a = x AND b = y`(AND連結は0件になる)。条件1つで絞り、残りはRust側で判定する。
+- 引数の型は不明(UNKNOWN)として扱われるため、文字列以外(整数・真偽)は`format!`でSQLに数値として埋め込む(値はRustの整数/真偽値なので注入の恐れは無い)。
+- 結果の列はすべて文字列で返る(整数は`parse`、真偽は`"t"`/`"true"`)。NULLは文字列`"NULL"`で返る。
+- 本番の`aruaru-server`(5433)にはユーザーが無いので使わない。専用インスタンス`aruaru-pro-db.service`(`127.0.0.1:15435`、データ`/var/lib/aruaru-pro-db`、`ARUARU_USERS`は`/etc/aruaru-pro/aruaru-db.env`)を使う。
+
+### aruaru-db dialect notes (2026-11-19, verified on the VPS)
+- Unsupported: `ALTER TABLE`, `ORDER BY`, `LIMIT`, `SELECT 1`, and `WHERE a = x AND b = y` (an AND chain returns zero rows). Filter on one condition and check the rest in Rust.
+- Parameter types are UNKNOWN, so non-string values (integers, booleans) are embedded into the SQL with `format!` as numbers (they are Rust integers/bools, so there is no injection risk).
+- Result columns all come back as text (parse integers; booleans are `"t"`/`"true"`). NULL comes back as the string `"NULL"`.
+- Production `aruaru-server` (5433) has no users configured, so it is not used. A dedicated instance `aruaru-pro-db.service` (`127.0.0.1:15435`, data `/var/lib/aruaru-pro-db`, `ARUARU_USERS` in `/etc/aruaru-pro/aruaru-db.env`) is used instead.
