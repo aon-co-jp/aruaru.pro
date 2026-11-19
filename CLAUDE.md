@@ -1,314 +1,180 @@
-# 開発方針＆開発環境ルール(aruaru.pro)
+# 開発方針＆開発環境ルール(aruaru.pro) / Development rules (aruaru.pro)
 
-作業ドライブは`F:\runo`(サブディレクトリ`repository\aruaru.pro`)。
-この節は[`open-raid-z`](https://github.com/aon-co-jp/open-raid-z)の
-`CLAUDE.md`を正本とし、各プロジェクトへコピーして同期する既存の運用
-ルール継承方針に準じる。
+**日本語** | [English](#english)
 
-## このリポジトリの役割(2026-09-13新設)
+作業場所は `F:\runo\repository\aruaru.pro`。ルールの正本は
+[`open-raid-z`](https://github.com/aon-co-jp/open-raid-z) の `CLAUDE.md` です。
+このファイルは、昔の経過をすべて書く場所ではなく、**いま必要なことだけを短く**書く場所です(古い経過は git の履歴にあります)。
 
-コンコナラ([coconala.com](https://coconala.com/))型のスキルシェア
-マーケットプレイスと、求人・アルバイト情報サイトを統合した新規サービス。
-既存サービスより手数料を大幅に安く提供することを目標とする(ユーザー
-指示、2026-09-13)。
+---
 
-ドメイン`aruaru.pro`(ユーザーが取得済み)を活かした命名。
+## 日本語
 
-## 技術スタック(ユーザー指示、2026-09-13)
+### 1. このリポジトリは何か
 
-- **バックエンド**: Rust + [RPoem](https://github.com/aon-co-jp/RPoem) +
-  [aruaru-db](https://github.com/aon-co-jp/aruaru-db)。
-- **フロントエンド**: [RS-React](https://github.com/aon-co-jp/RS-React)
-  (旧`RReact`)。ユーザー指示「Rust＋RPoem+RReactなどをベースにして」
-  (2026-09-13)。
-- **決済**: Stripe Connect(既存決済プラットフォームを利用する方針、
-  独自の資金移動システムは実装しない——法令対応の観点から)。
+ココナラ([coconala.com](https://coconala.com/))のような「スキルのお店」と、求人・アルバイトのサイトを **ひとつにしたサービス** です。
+目標は **手数料をとても安く** すること(いまはお金の 5%)。ドメイン `aruaru.pro` は取得済みです(ユーザー指示、2026-09-13)。
+いまは **試作品(実験)** で、一般公開はまだです。
 
-## Rust自前実装エコシステムの優先利用(ユーザー指示、2026-09-13)
+### 2. 技術と方針
 
-「実際にRust版が完成していれば、日頃の開発で使用して」という指示を
-受け、**aruaru.proの今後の実装では、`RFrontEnd`傘下のRust自前実装
-(既存実装コードを流用しない再開発)を優先的に使う**方針とする
-(既存の他プロジェクト——audiocafe-tokyo等——への横断的な入れ替えは
-対象外、ユーザー確認済み)。
+- **バックエンド**: Rust + [RPoem](https://github.com/aon-co-jp/RPoem) + [aruaru-db](https://github.com/aon-co-jp/aruaru-db)
+- **画面**: [RS-React](https://github.com/aon-co-jp/RS-React)(サーバー側で HTML を作る SSR)
+- **決済**: Stripe Connect。お金の移動は Stripe に任せ、自前の送金システムは作らない(法律の面から)
+- **Rust 製の自前部品を優先**: RS-JSON・RS-HTML・RS-CSS・RS-BootStrap・RS-React・RS-GraphQL(未成熟な部品は、先に部品側を仕上げてから使う)
+- **スコープ**: ココナラの主要カテゴリを最初から幅広く(1〜2 カテゴリの MVP にしない)+ 求人・アルバイト + 無料 IT 研修つき転職エージェント
+- **`job-site`(別の試作品)は触らない**(ユーザー指示)
+- **API の方針**: REST は全廃して Connect / gRPC に移す(下の方針の節を参照)。このリポジトリの今のルートは REST 風なので、**あとで Connect へ移す。新しい REST は増やさない**。OAuth のコールバック・Stripe の Webhook・`/healthz` は、相手の規格が決めているので例外
+- **JSON は RS-JSON**(サイズ・深さ・重複キーの上限つき)
 
-- JSON処理 → [RS-JSON](https://github.com/aon-co-jp/RS-JSON)
-  (`serde_json`を直接呼ぶ代わりに使う、`job-site`が既にこのパターン)
-- HTML生成(SSR) → [RS-HTML](https://github.com/aon-co-jp/RS-HTML)
-- CSS/スタイル計算 → [RS-CSS](https://github.com/aon-co-jp/RS-CSS)
-- CSSフレームワーク相当(グリッド/基本コンポーネント) →
-  [RS-BootStrap](https://github.com/aon-co-jp/RS-BootStrap)
-- フロントエンド(コンポーネントモデル) →
-  [RS-React](https://github.com/aon-co-jp/RS-React)
-- GraphQL API(将来REST以外のAPIが必要になった場合) →
-  [RS-GraphQL](https://github.com/aon-co-jp/RS-GraphQL)
+### 3. いまの状態(2026-11-19)
 
-これらのいずれかが該当機能に対してまだ未成熟(例: RS-Reactの`use_effect`
-未実装、RS-CSSにCSSテキストシリアライザが無い等)な場合は、各リポジトリ
-のCLAUDE.mdの「次にすべきこと」を先に完成させてから使う(既存方針
-「投げやり・その場しのぎ禁止」に沿う)。
+| 項目 | 状態 |
+|---|---|
+| コード | 出品・注文・レビュー・求人・転職エージェント・認証(Bearer + DB の Cookie + Google/Facebook/X の OAuth)・Stripe Connect・Webhook・ログアウト |
+| テスト | `cargo test` 48 件成功 |
+| VPS | `aruaru-pro.service`(`127.0.0.1:8143`)と専用 DB `aruaru-pro-db.service`(`127.0.0.1:15435`)が稼働。API を実際に通して確認済み |
+| 公開 | **未了**。`aruaru.pro` に A レコードがない(ネームサーバーは ConoHa DNS、VPS の IPv4 は `160.251.237.162`) |
+| Google ログインの往復 | 未検証(認可 URL の生成までは確認) |
+| Stripe の往復 | 未検証(テストキーがない) |
 
-## スコープ(ユーザー指示、2026-09-13)
+### 4. 作り方と配備
 
-- コンコナラの主要カテゴリを幅広くカバーするフルスコープ(1〜2カテゴリの
-  MVPではなく、当初からフルスコープで進める方針をユーザーが選択)。
-- 求人・アルバイト情報サイトを統合する(コンコナラ型スキルマーケット
-  プレイス単体ではなく、両方を1つのサービスにまとめる)。
-- カテゴリマスタは、ユーザーが提示したcoconalaの機能LISTをそのまま
-  初期データとして流用する(推測で埋めていない、`src/categories.rs`
-  参照)。「求人・アルバイト情報」を追加のトップレベルカテゴリとして
-  新設。
+- Rust は PATH に `%USERPROFILE%\.cargo\bin` を足す。`CARGO_BUILD_JOBS=2` で作る(`async-stripe` はメモリを多く使う)。
+- 兄弟リポジトリ(`RPoem`・`RS-JSON`・`RFrontEnd`・`aruaru-db`)を `F:\runo\repository` の直下に置く(path 依存)。
+- **開発・テスト・デバッグはこの PC(WSL を含む)で行う。VPS は配備と実測確認だけ**(負荷をかける試験はしない。VPS は 4 コア)。
+- 配備は `./.deploy-vps.sh`(WSL で release ビルド → `/root/aruaru.pro/aruaru-pro` へ転送 → 再起動。旧バイナリは `aruaru-pro.prev`)。WSL の PATH にカッコが入ると壊れるので、ビルドは `.build-wsl.sh` で行う。
+- VPS の設定: `/etc/aruaru-pro/aruaru-pro.env`(権限 600。DB の接続文字列と Google の ID/シークレット)、`/etc/aruaru-pro/aruaru-db.env`(DB のユーザー)。
+- 前面は `open-web-server`(`/root/open-web-server/domains.toml`)。**DNS が引けるようになってから** `aruaru.pro` を追記し、`backend_addr = "127.0.0.1:8143"` にする(先にバックアップを取る)。
 
-## 既存プロジェクトとの関係
+### 5. aruaru-db の方言(VPS の実機で確認)
 
-- **`job-site`**(`F:\runo\repository\job-site`、RPoem+aruaru-dbの結線
-  検証用試作品、リモート未push)とは別件として現状のまま残す
-  (ユーザー指示、2026-09-13:「別件として現状場所に残し、aruaru.proは
-  新規リポジトリでゼロから」)。ただし本リポジトリの`src/main.rs`は
-  job-siteのRPoem+aruaru-db結線パターン(リクエストボディのRS-JSON
-  デコード、`AruaruDb::connect`等)を参考にしている。
-- **RS-React**: フロント基盤として使う想定。2026-09-13、`App::mount`+
-  `render_to_html`によるSSR最小UI(カテゴリ一覧、`src/page.rs`)を実際に
-  接続・動作確認済み(下記「現状」参照)。ただし`App::tick`(状態変化への
-  追従・再レンダー)はこのページではまだ使っていない——カテゴリ一覧が
-  現時点でクライアント操作を持たないため。
+- 未対応: `ALTER TABLE`、`ORDER BY`、`LIMIT`、`SELECT 1`、`WHERE a = x AND b = y`(AND でつなぐと 0 件になる)。条件 1 つで絞り、残りは Rust で判定する。
+- 引数の型は「不明」なので、文字列以外(整数・真偽値)は `format!` で数値として SQL に埋め込む(値は Rust の整数・真偽値なので注入の心配はない)。
+- 結果の列はすべて文字列で返る(整数は `parse`、真偽値は `"t"`/`"true"`)。NULL は文字列 `"NULL"` で返る。
+- 本番の `aruaru-server`(5433)はユーザーが無いので使わず、専用の DB(`aruaru-pro-db.service`)を使う。
 
-## Rust自前実装の実装ノウハウについて(ユーザー指示、2026-09-13)
+### 6. 守ること・落とし穴
 
-「RS-などのRust版は、Rust+TauriやtokioなどRPoemでの実装時のノウハウを
-上手く取り入れて」という指示があった。RPoem(`open-runo-poem-compat`
-等)の開発で確立された非同期実行基盤・エラー処理・機能フラグ設計等の
-パターンを、RS-HTML/RS-CSS/RS-React等のRust自前実装(および本リポジトリ
-自身)の実装時に積極的に参考にする方針とする。具体例:
-- `dom_bridge`のようなoptional feature設計(依存を必須にしない、
-  RPoem側の各クレートが機能フラグでオプトインさせる設計と同じ考え方)。
-- エラー型の扱い(`anyhow`での集約、呼び出し元での分類——job-siteの
-  `aruaru_db_connector::Error`variant分岐と同じパターン)。
-- 今後Wasmハイドレーション(RS-TypeScript/RS-JavaScript経由)を実装する
-  際は、RPoemの「サーバー側実行基盤とブラウザ側実行環境は役割が異なる」
-  という層の整理(`RFrontEnd/CLAUDE.md`参照)を踏襲する。
+- **秘密(キー・シークレット)は、コード・README・チャットに書かない。** `F:\` 直下の txt や、権限 600 のファイルに置く。例: `F:\google-oauth.txt`(1 行目 = ID、2 行目 = シークレット)。
+- ID は `ids::make_id` を使う(日本語の名前が空になる slugify は使わない。必ずハッシュを付ける)。
+- このリポジトリの GitHub 履歴は書き直されている。**`git pull` しない**。`git fetch` のあと `git reset --mixed origin/main` で合わせる。
+- `git push` が固まるときは `-c credential.helper='!gh auth git-credential'` を付ける。
+- 返事は日本語で。実機で確認してから「完了」と報告する。
 
-## 現状(2026-09-13)
+### 7. 次にやること
 
-- `Cargo.toml`: `open-runo-poem-compat`(RPoem)・`aruaru-db-connector`・
-  `rust-json`(RS-JSON)・`rs-react`(`dom_bridge`フィーチャ有効)への
-  path依存。
-- `src/main.rs`: `GET /healthz`・`GET /categories`(JSON)・`GET /`
-  (RS-ReactによるSSRカテゴリ一覧、下記参照)。出品・注文・エスクロー・
-  決済・レビュー・チャット等は未着手。
-- `src/categories.rs`: カテゴリマスタ(ユーザー提示のcoconala機能LISTを
-  そのまま流用、「デザイン制作」は子カテゴリ21件を持つ)。テスト2件
-  green。
-- **`src/page.rs`(2026-09-13新設)**: RS-Reactの`App::mount`でカテゴリ
-  一覧コンポーネントを初回render→`rs_react::render_to_html`でHTML文字列化
-  する最小のSSRページ。RS-HTML側で新設した`serialize_node`公開・
-  RS-React側で新設した`render_to_html`/`vnode_to_node`公開により実現
-  (両方2026-09-13にこの一連の作業で追加)。テスト2件green
-  (全カテゴリがHTMLに現れる・デザイン制作の子カテゴリが入れ子の`<ul>`で
-  現れる)。一時的な`cargo run --example print_page`で実際のHTML出力を
-  目視確認済み(確認後にexampleファイルは削除、動作確認用の一時ファイル
-  だったため)。`App::tick`によるインタラクティブな再レンダーはまだ
-  使っていない(カテゴリ一覧は現時点で静的)。
-- **`src/services.rs`+`src/reviews.rs`(2026-09-13新設)**: 出品(Service)・
-  レビュー(Review)のCRUD第一段。`job-site`のjobs実装パターン(RS-JSON
-  デコード・`AruaruDb::commit`によるGit-on-SQLバージョン管理)を踏襲。
-  - `POST /services`(作成/更新+commit)・`GET /services`(一覧)・
-    `GET /services/:id`(単体取得)。
-  - `POST /services/:id/reviews`(作成、対象serviceの実在確認込み)・
-    `GET /services/:id/reviews`(一覧)。
-  - **実バグを未然に回避**: `job-site`のid生成(`slugify`を`--`連結)を
-    そのまま転用すると、`slugify`が英数字以外を除去するため**日本語の
-    出品者名・タイトルは軒並み空文字に潰れ、異なる出品が同じidへ
-    衝突する**(このサービスは日本語が主言語のため、job-siteの前提
-    ——英語のテストデータ——がそのまま当てはまらない)。`services::
-    make_service_id`でハッシュ(`DefaultHasher`)を必ず付与する設計に
-    変更し、テストで日本語名の非衝突・決定性を確認済み。**job-site
-    自体は別件としてそのまま残す方針(2026-09-13確認済み)のため、
-    今回はaruaru.pro側だけを直し、job-site側のバグ修正は対象外**
-    (別セッションで扱うべき指摘として認識——直接ユーザーに実行を
-    依頼していないため、今回は変更していない)。
-  - テスト10件追加(id生成の非衝突/決定性/ASCII時の読みやすいslug、
-    出品/レビューのvalidate関数)、`cargo test`14件全green・警告0件。
-- `cargo build`/`cargo test`: 通過確認済み(このリポジトリ自体の警告0件、
-  RPoem側の既存warning 3件は対象外)。
+1. **本人の作業**: ConoHa DNS に `aruaru.pro` の A レコード `160.251.237.162` を追加。Google コンソールの OAuth クライアントに `https://aruaru.pro/auth/oauth/google/callback` を追加。
+2. 前面の `domains.toml` に追記して証明書を取る。
+3. 本物のサイトで Google ログインの往復を確認(`start` → 認可 → `callback` → `aruaru_session` Cookie)。
+4. Stripe のテストキー + `stripe listen` で、オンボーディング → チェックアウト → Webhook → 注文 `completed` を通す。
+5. REST 風のルートを Connect(`POST /<パッケージ>.<Service>/<Method>`)へ移す。
+6. Facebook・X のアプリ登録(本人の作業)。X はメールアドレスを返さない。
+7. `career_agent_programs` の収益モデルの検討。`App::tick` を使う対話 UI(カテゴリ絞り込みなど)。
 
-## 2026-09-13 続き: 1〜5の実装完了+IT研修付き転職エージェント新設
+### 8. OAuth のリダイレクト URI(本人が各サービスに登録)
 
-ユーザー指示「1から5の順番で実装して」に基づき、以下を全て実装済み。
-
-1. **注文(Order)モデル**(`src/orders.rs`): `POST /services/:id/orders`・
-   `POST /orders/:id/transition`(pending→completed/cancelledのみ許可)。
-   `reviews::create_review`は`orders::order_is_completed_by`で
-   「その出品への完了済み注文の買い手本人か」を確認するようになった。
-2. **Stripe Connect**(`src/stripe_connect.rs`): `async-stripe`0.41.0
-   (`connect`+`checkout`+`runtime-tokio-hyper-rustls-webpki`feature)。
-   `POST /sellers/:seller_name/stripe/onboarding`(Express Connect
-   アカウント作成+Onboardingリンク)・`POST /orders/:order_id/checkout`
-   (`application_fee_amount`+`transfer_data.destination`による手数料
-   付きCheckout Session)。手数料率5%(定数`PLATFORM_FEE_PERCENT`)。
-   **正直な開示**: テストAPIキーが無いため実際のAPI呼び出しは実機
-   未検証(コンパイル通過+金額計算ロジックのテストのみ)。
-3. **求人・アルバイト情報の専用データモデル**(`src/job_listings.rs`):
-   `services`テーブルとは別の`job_listings`テーブル(勤務地・時給・
-   雇用形態)。雇用形態は固定一覧(正社員/契約社員/アルバイト/パート/
-   業務委託/派遣)。
-4. **認証**(`src/auth.rs`): `POST /auth/register`でBearerトークン即発行
-   (seller/buyer/job_seeker/recruiterの4ロール)。出品・注文・レビュー・
-   求人作成の各ハンドラに`authenticate`+`require_role`+
-   `require_name_matches`(なりすまし防止)を組み込み。**正直な開示**:
-   パスワード・OAuth・メール確認は無い第一段の最小実装。
-5. **カテゴリマスタのDBテーブル化**(`src/categories.rs`):
-   `categories`テーブル(name/parent_name/position)をコンパイル時定数
-   `CATEGORIES`から起動時にシード(`ensure_table_and_seed`、
-   `ON CONFLICT DO NOTHING`で冪等)。`GET /categories`・`GET /`
-   (SSRページ)ともDBから読むようになった。出品作成時のカテゴリ検証は
-   `category_is_known_statically`(高速・I/O無し)→`category_exists_in_db`
-   (フォールバック)の2段構成にし、既存の同期ユニットテストを保ちながら
-   将来の管理者によるカテゴリ追加(再デプロイ無し)にも対応できるように
-   した。
-
-**追加(ユーザー指示、2026-09-13)**: 「正社員求人や無料のIT研修付き
-無料の転職エージェントサービスコーナーも作って」。正社員求人自体は
-上記3の`job_listings`(`employment_type = "正社員"`)で既にカバー済み
-のため、新設したのは「無料IT研修+就職支援」という異なるサービス形態
-(`src/career_agent_programs.rs`、`career_agent_programs`テーブル:
-`agent_name`/`program_name`/`description`/`training_weeks`/
-`target_job_type`/`is_free_for_trainee`)。`POST/GET
-/career-agent-programs`・`GET /career-agent-programs/:id`を実装、
-認証は`recruiter`ロールを流用(専用ロールは新設せず既存の役割分担に
-収めた)。カテゴリマスタに「IT研修付き転職エージェント」を追加。
-
-テスト合計38件全green・警告0件(services.rsのカテゴリ検証テストは
-`validate_upsert`→`validate_upsert_fields`+`category_is_known_statically`
-へ分割、既存テストの意図は保持)。
-
-## 2026-09-13 続き2: Google/Facebook/X OAuth 2.0ログインを追加
-
-ユーザー指示「認証はパスワード/OAuth無しの最小実装 GmailやFacebookや
-XのOAuth認証は実装して」に基づき`src/oauth.rs`を新設。
-
-- `GET /auth/oauth/:provider/start?role=<role>`(`provider`は
-  `google`/`facebook`/`x`) → 各プロバイダの認可URLを`{"authorize_url":
-  ...}`で返す(302直接リダイレクトではない——`open_runo_poem_compat`側に
-  リダイレクト応答ヘルパーが無いため、呼び出し側がこのURLへ遷移する
-  形。将来ヘルパーが整備されれば差し替え可能)。CSRF対策の`state`
-  (Xのみ必要なPKCE `code_verifier`/`code_challenge`込み)をプロセス内
-  メモリ(`OnceLock<Mutex<HashMap<..>>>`)で保持。
-- `GET /auth/oauth/:provider/callback?code=...&state=...` →
-  `code`をアクセストークンに交換→各プロバイダのuserinfo APIで
-  `(subject, name, email)`取得→`(oauth_provider, oauth_subject)`で
-  既存ユーザー検索、無ければ新規作成→自前のBearerトークンを発行して
-  返す(`auth::register`と同じトークン形式、既存の`users`テーブルに
-  `email`/`oauth_provider`/`oauth_subject`列を追加、既存DBへの
-  `ALTER TABLE ADD COLUMN IF NOT EXISTS`で追従)。
-- 依存クレート追加: `reqwest`(json/form/query feature、HTTPクライアント)・
-  `sha2`(PKCE code_challenge用のSHA-256)。
-- **正直な開示**: (1) state/PKCEのプロセス内メモリ保持はCookie
-  セッションが無い簡易実装で、プロセス再起動・マルチインスタンス構成
-  では機能しない。(2) X(旧Twitter)のuserinfo APIは既定でメール
-  アドレスを返さないため`email`が`None`のまま登録されることがある。
-  (3) 実際のOAuthアプリ登録(client_id/secret)がこのセッションの環境に
-  無いため、実際のGoogle/Facebook/Xアカウントでのログイン往復は
-  未検証——URL構築・PKCE生成(既知テストベクタで裏取り済み)・
-  パーセントエンコードのロジックのみユニットテストで確認。
-
-テスト5件追加、`cargo test`43件全green・警告0件。
-
-## 2026-09-13 続き3: Cookieセッションをプロセス内メモリからDBへ本格化
-
-ユーザー指摘「state/PKCEの保持がプロセス内メモリのみ——Cookieセッション
-がある試作品としては本格的な開発をして、再起動やマルチインスタンス
-構成でも機能させて」に基づき実装。
-
-- **`sessions`テーブル**(`auth.rs`): ログイン成功時(`register`・
-  `oauth::callback`)に`auth::issue_session`がセッションIDを発行し
-  `Set-Cookie: aruaru_session=...; HttpOnly; SameSite=Lax; Max-Age=
-  2592000`(30日)を付与。`authenticate`は`Authorization: Bearer`
-  ヘッダ(既存のAPIクライアント向け経路、後方互換で維持)→無ければ
-  `Cookie`ヘッダのセッションの順で認証を試みる(ブラウザ向けCookie
-  セッション・APIクライアント向けBearerトークンの両対応)。
-- **`oauth_pending_states`テーブル**(`oauth.rs`): OAuthのCSRF対策
-  state・Xのみ使うPKCE code_verifierを、プロセス内メモリ
-  (`OnceLock<Mutex<HashMap<..>>>`)からDBテーブルへ移行。`callback`で
-  取り出すと同時に削除(ワンタイム、リプレイ対策)。15分の有効期限、
-  `start`のたびに期限切れエントリを機会的に削除。
-- どちらも`aruaru-db`という共有DBへの接続を前提とするため、
-  プロセス再起動・複数インスタンス構成(ロードバランサ配下)のいずれでも
-  同じ状態を検証できるようになった(以前の「プロセス内メモリのみ」
-  という限界を解消)。
-- `hyper`crateを直接依存に追加(`HeaderValue`/`COOKIE`/`SET_COOKIE`の
-  ため、以前は`open-runo-router`経由の推移的依存にしか無かった)。
-- テスト2件追加、`cargo test`45件全green・警告0件。
-
-## 2026-09-24 続き4: Stripe Webhook・ログアウト
-
-- **`POST /stripe/webhook`**(`stripe_connect::webhook`): `Stripe-Signature`
-  を`STRIPE_WEBHOOK_SECRET`で検証(`async-stripe`の`webhook-events`
-  feature、署名不一致・5分超の古いタイムスタンプは400)。
-  `checkout.session.completed`かつ`payment_status = paid`のとき、
-  `client_reference_id`(`create_checkout_session`が注文idを設定する
-  ように変更)の注文を`UPDATE ... WHERE status = 'pending'`で
-  `completed`へ遷移(Stripeの再送でも冪等)。これでレビュー投稿の前提
-  (完了済み注文)が決済完了から自動で満たされる。
-- **`POST /auth/logout`**(`auth::logout`): セッション行を削除し
-  `Set-Cookie ... Max-Age=0`で即時失効(冪等)。
-- テスト3件追加(`paid_order_id`: 無関係イベント無視・支払い済み
-  セッションから注文id抽出・未払い無視)、`cargo test`48件全green。
-- **開発環境メモ**: `async-stripe`(webhook-events込み)のコンパイルで
-  rustcが`STATUS_STACK_BUFFER_OVERRUN`/fork失敗になることがあった
-  (メモリ逼迫)。`CARGO_BUILD_JOBS=2`で並列度を下げると通る。
-- **正直な開示**: 署名検証自体はasync-stripeの実装に委ねており、
-  実際のStripeからの配信(署名付きリクエスト)での往復は未検証。
-
-## 次にすべきこと
-
-1. StripeのテストモードAPIキー+`stripe listen`(Stripe CLI)での
-   Webhook込みの実機検証(オンボーディング→チェックアウト→Webhook→
-   注文`completed`の一連)。
-2. StripeのテストモードAPIキーでの実機検証(オンボーディング〜
-   チェックアウトの一連の流れを実際に動かして確認)。
-3. Google/Facebook/X各プロバイダで実際にOAuthアプリを登録し
-   (`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`等の環境変数設定)、
-   実機でログイン往復を検証する(下記「OAuthアプリ登録手順」参照
-   ——ユーザー自身のアカウントでの登録作業が必要、代理実行不可)。
-4. `career_agent_programs`の収益モデル(エージェント企業からの成約
-   報酬等)の検討——現状は掲載機能のみで決済との接続は無い。
-5. インタラクティブなUI(カテゴリ絞り込み検索等)が必要になった時点で
-   RS-Reactの`App::tick`(状態変化への追従・再レンダー)を実際に使う
-   ——現状のカテゴリ一覧ページはまだ静的なSSRのみ。
-
-## OAuthアプリ登録手順(ユーザー自身の作業、2026-09-13)
-
-`ARUARU_PRO_PUBLIC_URL=https://aruaru.pro`を前提とした、各プロバイダの
-リダイレクトURI:
-
-| プロバイダ | リダイレクトURI |
+| サービス | URI |
 |---|---|
 | Google | `https://aruaru.pro/auth/oauth/google/callback` |
 | Facebook | `https://aruaru.pro/auth/oauth/facebook/callback` |
 | X | `https://aruaru.pro/auth/oauth/x/callback` |
 
-登録後に得た`client_id`/`client_secret`を、サーバーの環境変数
-`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`・
-`FACEBOOK_CLIENT_ID`/`FACEBOOK_CLIENT_SECRET`・
-`X_CLIENT_ID`/`X_CLIENT_SECRET`にそれぞれ設定する。
+### 9. 関連プロジェクト
 
-## 関連プロジェクト
+[RPoem](https://github.com/aon-co-jp/RPoem) / [RS-React](https://github.com/aon-co-jp/RS-React) / [aruaru-db](https://github.com/aon-co-jp/aruaru-db) / [RS-JSON](https://github.com/aon-co-jp/RS-JSON) / [RFrontEnd](https://github.com/aon-co-jp/RFrontEnd) / [open-raid-z](https://github.com/aon-co-jp/open-raid-z)(ルールの正本)
 
-- [RPoem](https://github.com/aon-co-jp/RPoem) — サーバー側実行基盤
-- [RS-React](https://github.com/aon-co-jp/RS-React) — フロントエンド(コンポーネントモデル)、2026-09-13にRReactから改称
-- [aruaru-db](https://github.com/aon-co-jp/aruaru-db) — データベース
-- [RS-JSON](https://github.com/aon-co-jp/RS-JSON) — JSONデコード
-- [RFrontEnd](https://github.com/aon-co-jp/RFrontEnd) — RS-React等の親リポジトリ
-- [job-site](F:\runo\repository\job-site) — RPoem+aruaru-db結線検証用試作品(別件、リモート未push)
-- [open-raid-z](https://github.com/aon-co-jp/open-raid-z) — 開発ルールの正本
+### 10. HANDOFF(経過の要約)
 
-## HANDOFF
+- **2026-09-13** リポジトリ新設。出品・注文・レビュー・求人・転職エージェント・認証・Stripe Connect・OAuth・DB の Cookie セッションを実装。
+- **2026-09-24** Stripe Webhook(支払い完了 → 注文 `completed`)とログアウトを実装。
+- **2026-11-19** VPS に配備(専用 DB つき)。aruaru-db の方言に合わせて SQL を修正。README・PORTING・CLAUDE を日英で書き直し。公開は DNS 待ち。再開は [`PORTING.md`](PORTING.md) から。
 
-- **2026-09-13 リポジトリ新設**: GitHub `aon-co-jp/aruaru.pro`作成、
-  ローカル`F:\runo\repository\aruaru.pro`に最小骨格(healthz+categories
-  API)を実装し`cargo build`/`cargo test`(2件green)で検証。次回セッション
-  では「次にすべきこと」1(RS-React側のアプリループ)から着手すること。
+---
+
+## English
+
+### 1. What is this repository?
+
+It is **one service that joins two things**: a "skill shop" like Coconala ([coconala.com](https://coconala.com/)) and a site for jobs and part-time work.
+The goal is **very low fees** (right now, 5% of each payment). The owner already has the domain `aruaru.pro` (user instruction, 2026-09-13).
+Today it is a **prototype (an experiment)** and is not open to the public yet.
+
+### 2. Tech and policy
+
+- **Back end**: Rust + [RPoem](https://github.com/aon-co-jp/RPoem) + [aruaru-db](https://github.com/aon-co-jp/aruaru-db)
+- **Screens**: [RS-React](https://github.com/aon-co-jp/RS-React) (the server builds the HTML, called SSR)
+- **Payments**: Stripe Connect. Stripe moves the money; we do not build our own money-transfer system (for legal reasons).
+- **Prefer our own Rust parts**: RS-JSON, RS-HTML, RS-CSS, RS-BootStrap, RS-React, RS-GraphQL (if a part is not ready, finish that part first, then use it).
+- **Scope**: wide Coconala-style categories from day one (not a 1–2 category MVP), plus jobs and part-time work, plus a career-agent corner with free IT training.
+- **Do not touch `job-site`** (a separate prototype) — user instruction.
+- **API policy**: REST is being abolished in favor of Connect / gRPC (see the policy sections below). The routes here are REST-style today, so **they will move to Connect later. Do not add new REST routes.** The OAuth callback, the Stripe webhook and `/healthz` are exceptions because someone else's standard decides their shape.
+- **JSON goes through RS-JSON** (with size, depth and duplicate-key limits).
+
+### 3. Where we are (2026-11-19)
+
+| Item | State |
+|---|---|
+| Code | Listings, orders, reviews, jobs, career-agent programs, auth (Bearer + DB cookie + Google/Facebook/X OAuth), Stripe Connect, webhook, logout |
+| Tests | 48 `cargo test` tests pass |
+| VPS | `aruaru-pro.service` (`127.0.0.1:8143`) and a dedicated DB `aruaru-pro-db.service` (`127.0.0.1:15435`) are running. The APIs were really called and checked. |
+| Going public | **Not done.** `aruaru.pro` has no A record (name servers are ConoHa DNS; the VPS IPv4 is `160.251.237.162`). |
+| Google login round trip | Not verified (we only checked that the consent URL is built). |
+| Stripe round trip | Not verified (no test keys). |
+
+### 4. Build and deploy
+
+- Put `%USERPROFILE%\.cargo\bin` on PATH. Build with `CARGO_BUILD_JOBS=2` (`async-stripe` uses a lot of memory).
+- Sibling repos (`RPoem`, `RS-JSON`, `RFrontEnd`, `aruaru-db`) must sit directly under `F:\runo\repository` (path dependencies).
+- **Develop, test and debug on this PC (WSL included). Use the VPS only to deploy and to check** — no load tests (the VPS has 4 cores).
+- Deploy with `./.deploy-vps.sh` (release build in WSL → copy to `/root/aruaru.pro/aruaru-pro` → restart; the old binary is kept as `aruaru-pro.prev`). A PATH with parentheses breaks WSL, so the build runs through `.build-wsl.sh`.
+- VPS settings: `/etc/aruaru-pro/aruaru-pro.env` (mode 600: DB connection string and the Google ID/secret) and `/etc/aruaru-pro/aruaru-db.env` (the DB user).
+- The front server is `open-web-server` (`/root/open-web-server/domains.toml`). **Only after DNS resolves**, add `aruaru.pro` with `backend_addr = "127.0.0.1:8143"` (back the file up first).
+
+### 5. aruaru-db dialect (checked on the real VPS)
+
+- Not supported: `ALTER TABLE`, `ORDER BY`, `LIMIT`, `SELECT 1`, and `WHERE a = x AND b = y` (an AND chain returns zero rows). Filter on one condition and check the rest in Rust.
+- Parameter types are "unknown", so anything that is not a string (integers, booleans) is put into the SQL with `format!` as a plain number (they are Rust integers and bools, so there is no injection risk).
+- Every result column comes back as text (parse integers; booleans are `"t"`/`"true"`). NULL comes back as the string `"NULL"`.
+- Production `aruaru-server` (5433) has no users, so we do not use it. We use our own DB (`aruaru-pro-db.service`).
+
+### 6. Rules and traps
+
+- **Never write secrets (keys, client secrets) in code, the README or chat.** Keep them in a txt file under `F:\` or a mode-600 file. Example: `F:\google-oauth.txt` (line 1 = ID, line 2 = secret).
+- Use `ids::make_id` for IDs (do not use a slugify that turns Japanese names into empty strings; always add a hash).
+- This repository's GitHub history was rewritten. **Do not `git pull`.** Run `git fetch`, then `git reset --mixed origin/main`.
+- If `git push` hangs, add `-c credential.helper='!gh auth git-credential'`.
+- Reply in Japanese. Say "done" only after checking on a real system.
+
+### 7. Next steps
+
+1. **Owner's task**: add an A record `160.251.237.162` for `aruaru.pro` in ConoHa DNS. In the Google console add `https://aruaru.pro/auth/oauth/google/callback` to the OAuth client.
+2. Add the site to the front `domains.toml` and get the certificate.
+3. Check the Google login round trip on the real site (`start` → consent → `callback` → `aruaru_session` cookie).
+4. With Stripe test keys and `stripe listen`, run onboarding → checkout → webhook → order `completed`.
+5. Move the REST-style routes to Connect (`POST /<package>.<Service>/<Method>`).
+6. Register the Facebook and X apps (owner's task). X does not return an email address.
+7. Think about how the career-agent programs earn money. Build an interactive UI with `App::tick` (for example, category filtering).
+
+### 8. OAuth redirect URIs (the owner registers these with each provider)
+
+| Provider | URI |
+|---|---|
+| Google | `https://aruaru.pro/auth/oauth/google/callback` |
+| Facebook | `https://aruaru.pro/auth/oauth/facebook/callback` |
+| X | `https://aruaru.pro/auth/oauth/x/callback` |
+
+### 9. Related projects
+
+[RPoem](https://github.com/aon-co-jp/RPoem) / [RS-React](https://github.com/aon-co-jp/RS-React) / [aruaru-db](https://github.com/aon-co-jp/aruaru-db) / [RS-JSON](https://github.com/aon-co-jp/RS-JSON) / [RFrontEnd](https://github.com/aon-co-jp/RFrontEnd) / [open-raid-z](https://github.com/aon-co-jp/open-raid-z) (source of truth for the rules)
+
+### 10. HANDOFF (short history)
+
+- **2026-09-13** Repository created. Built listings, orders, reviews, jobs, career-agent programs, auth, Stripe Connect, OAuth and DB-backed cookie sessions.
+- **2026-09-24** Stripe webhook (payment done → order `completed`) and logout.
+- **2026-11-19** Deployed to the VPS (with its own DB). Fixed the SQL to fit the aruaru-db dialect. Rewrote README, PORTING and CLAUDE in Japanese and English. Going public waits for DNS. Resume from [`PORTING.md`](PORTING.md).
+
+---
 
 ## API 方針: REST 全廃・gRPC / Connect へ (2026-11-04)
 
@@ -421,33 +287,3 @@ XのOAuth認証は実装して」に基づき`src/oauth.rs`を新設。
 - **WASM по-прежнему остаётся технологией для интерфейса.** Изменилось лишь то, что вызываемый им API теперь построен на Connect.
 - Интерфейсы, форма которых задана внешним стандартом (ACME, обратные вызовы OAuth, вебхуки сторонних сервисов, проверки работоспособности, статические файлы, OTLP), остаются обычным HTTP.
 - **Если есть сомнения — выбирайте Connect.**
-
-## 2026-11-19 現状と次の一手 / Status and next steps
-
-**日本語**
-- 実装は出品・注文・レビュー・求人・IT研修付き転職エージェント・認証(Bearer+DBのCookieセッション+Google/Facebook/X OAuth)・Stripe Connect・Webhook・ログアウトまで完了、`cargo test`48件成功、`1107dbc`までpush済み。
-- README・PORTING.mdを日英で書き直した(子どもにも専門家にも読めるように)。再開は[`PORTING.md`](PORTING.md)の「次にやること」から。
-- **公開は未了**: `aruaru.pro`にAレコードが無い(NSはConoHa DNS、VPSのIPv4は`160.251.237.162`)ため、DNS追加(本人作業)→VPS配置(`127.0.0.1:8143`)→前面`open-web-server`の`domains.toml`追記→Googleリダイレクト登録→実機ログイン確認の順。
-- **方針との差**: 現在のルートはREST風。エコシステム方針(REST全廃・Connect)に合わせて後で移す。新しいRESTは足さない(OAuthコールバック・Stripe Webhook・`/healthz`は例外)。
-- 上の「次にすべきこと」の1と2は同じ内容(Stripe実機検証)で重複している。
-- WSLへ渡すPATHにカッコが入るとビルドが壊れるので、`.build-wsl.sh`のようにスクリプトファイルで実行する。
-
-**English**
-- Implemented: listings, orders, reviews, jobs, career-agent programs with free IT training, auth (Bearer + DB cookie sessions + Google/Facebook/X OAuth), Stripe Connect, webhook and logout. 48 `cargo test` tests pass; pushed up to `1107dbc`.
-- README and PORTING.md were rewritten in Japanese and English (readable by children and experts). Resume from "Next steps" in [`PORTING.md`](PORTING.md).
-- **Not public yet**: `aruaru.pro` has no A record (name servers are ConoHa DNS; the VPS IPv4 is `160.251.237.162`). Order: add DNS (owner) → place on the VPS (`127.0.0.1:8143`) → add to the front `open-web-server`'s `domains.toml` → register the Google redirect URI → verify a real login.
-- **Gap with policy**: the current routes are REST-style; they will move to Connect per the ecosystem policy (REST abolition). No new REST is added (OAuth callback, Stripe webhook and `/healthz` are exceptions).
-- Items 1 and 2 of the older "次にすべきこと" list above are duplicates (Stripe live verification).
-- A PATH with parentheses breaks the build when passed into WSL; run it from a script file such as `.build-wsl.sh`.
-
-### aruaru-dbの方言メモ(2026-11-19、VPSの実機で確認)
-- 未対応: `ALTER TABLE`、`ORDER BY`、`LIMIT`、`SELECT 1`、`WHERE a = x AND b = y`(AND連結は0件になる)。条件1つで絞り、残りはRust側で判定する。
-- 引数の型は不明(UNKNOWN)として扱われるため、文字列以外(整数・真偽)は`format!`でSQLに数値として埋め込む(値はRustの整数/真偽値なので注入の恐れは無い)。
-- 結果の列はすべて文字列で返る(整数は`parse`、真偽は`"t"`/`"true"`)。NULLは文字列`"NULL"`で返る。
-- 本番の`aruaru-server`(5433)にはユーザーが無いので使わない。専用インスタンス`aruaru-pro-db.service`(`127.0.0.1:15435`、データ`/var/lib/aruaru-pro-db`、`ARUARU_USERS`は`/etc/aruaru-pro/aruaru-db.env`)を使う。
-
-### aruaru-db dialect notes (2026-11-19, verified on the VPS)
-- Unsupported: `ALTER TABLE`, `ORDER BY`, `LIMIT`, `SELECT 1`, and `WHERE a = x AND b = y` (an AND chain returns zero rows). Filter on one condition and check the rest in Rust.
-- Parameter types are UNKNOWN, so non-string values (integers, booleans) are embedded into the SQL with `format!` as numbers (they are Rust integers/bools, so there is no injection risk).
-- Result columns all come back as text (parse integers; booleans are `"t"`/`"true"`). NULL comes back as the string `"NULL"`.
-- Production `aruaru-server` (5433) has no users configured, so it is not used. A dedicated instance `aruaru-pro-db.service` (`127.0.0.1:15435`, data `/var/lib/aruaru-pro-db`, `ARUARU_USERS` in `/etc/aruaru-pro/aruaru-db.env`) is used instead.

@@ -40,7 +40,8 @@
 - 無料 IT 研修つき転職エージェント: `POST/GET /career-agent-programs`、`GET /career-agent-programs/:id`
 - 認証: `POST /auth/register`、`POST /auth/logout`、`GET /auth/oauth/:provider/start|callback`
 - 決済: `POST /sellers/:seller_name/stripe/onboarding`、`POST /orders/:order_id/checkout`、`POST /stripe/webhook`
-- `cargo test` 48 件すべて成功(2026-11-19 確認)
+- `cargo test` 48 件すべて成功
+- VPS(`127.0.0.1:8143`、専用 DB つき)で稼働中。登録・出品・注文・レビュー・求人・研修・ログアウトを実際に通して確認済み
 
 ### 正直なお知らせ(まだできていないこと・ご注意)
 
@@ -63,6 +64,8 @@ CARGO_BUILD_JOBS=2 cargo run --release
 
 秘密(キー・シークレット)は **コードや README に書かず**、環境変数やサーバー上の権限 600 のファイルに置いてください。
 `async-stripe` のコンパイルはメモリを多く使うので、`CARGO_BUILD_JOBS=2` を勧めます。
+
+aruaru-db の SQL は PostgreSQL より小さく、`ALTER TABLE`・`ORDER BY`・`LIMIT`・条件の `AND` 連結は使えません。詳しくは [`CLAUDE.md`](CLAUDE.md) を見てください。
 
 OAuth のリダイレクト先(各サービスの管理画面に登録する URL):
 
@@ -87,65 +90,70 @@ OAuth のリダイレクト先(各サービスの管理画面に登録する URL
 
 ## English
 
-### What is this? (explained so a child can follow)
+### What is this? (so simple that a child can understand)
 
-**A website where people share what they are good at, and others can ask for it.**
+**It is a website where people can share the things they are good at.**
 
-- People who draw, write well, or can program **list** what they can do.
-- People who need help **order** it.
+- Some people draw pictures. Some write well. Some can make computer programs. They **put up** what they can do.
+- Other people need help. They **order** it.
 - You can also look for **jobs and part-time work** on the same site.
-- If you want to learn IT, there is a corner for **career support with free IT training**.
+- If you want to learn computers, there is a corner for **free IT training and help finding a job**.
 
-It combines a "skill shop" like Coconala ([coconala.com](https://coconala.com/)) with a job-listing site.
-The goal is **very low fees**: the site currently takes only 5% of each payment.
+It joins two ideas into one: a "skill shop" like Coconala ([coconala.com](https://coconala.com/)) and a job site.
+Our goal is **very low fees**. Right now the site keeps only 5% of each payment.
 
 ### For experts
 
 | Item | Details |
 |---|---|
-| Language / runtime | Rust + [RPoem](https://github.com/aon-co-jp/RPoem) (Poem-compatible facade) |
+| Language and runtime | Rust + [RPoem](https://github.com/aon-co-jp/RPoem) (a Poem-compatible layer) |
 | Database | [aruaru-db](https://github.com/aon-co-jp/aruaru-db) (Git-on-SQL, PostgreSQL-compatible) |
-| UI (SSR) | [RS-React](https://github.com/aon-co-jp/RS-React) + RS-HTML (`App::mount` → `render_to_html`) |
-| JSON | [RS-JSON](https://github.com/aon-co-jp/RS-JSON) (size / depth / duplicate-key limits) |
-| Payments | Stripe Connect (Express accounts, `application_fee_amount` 5% + `transfer_data.destination`) |
-| Auth | Four roles (seller / buyer / job_seeker / recruiter), Bearer token + DB-backed cookie session, Google / Facebook / X OAuth 2.0 (X uses PKCE) |
-| State | All stored in the DB (designed to survive restarts and multiple instances) |
+| Screens (SSR) | [RS-React](https://github.com/aon-co-jp/RS-React) + RS-HTML (`App::mount` → `render_to_html`) |
+| JSON | [RS-JSON](https://github.com/aon-co-jp/RS-JSON) (limits on size, depth and duplicate keys) |
+| Payments | Stripe Connect (Express accounts, `application_fee_amount` of 5% + `transfer_data.destination`) |
+| Login | Four roles (seller / buyer / job_seeker / recruiter), a Bearer token plus a cookie session stored in the DB, and Google / Facebook / X OAuth 2.0 (X uses PKCE) |
+| State | Everything lives in the database, so it survives restarts and works with several copies of the server |
 
-### What works today (as of 2026-11-19)
+### What works today (2026-11-19)
 
-- `GET /healthz`, `GET /categories`, `GET /` (server-rendered category page)
+- `GET /healthz`, `GET /categories`, `GET /` (the category page, built on the server)
 - Listings: `POST/GET /services`, `GET /services/:id`
 - Orders: `POST /services/:id/orders`, `POST /orders/:id/transition`
-- Reviews (only by a buyer with a completed order): `POST/GET /services/:id/reviews`
+- Reviews (only the buyer of a finished order can write one): `POST/GET /services/:id/reviews`
 - Jobs: `POST/GET /jobs`, `GET /jobs/:id`
 - Career-agent programs with free IT training: `POST/GET /career-agent-programs`, `GET /career-agent-programs/:id`
-- Auth: `POST /auth/register`, `POST /auth/logout`, `GET /auth/oauth/:provider/start|callback`
+- Login: `POST /auth/register`, `POST /auth/logout`, `GET /auth/oauth/:provider/start|callback`
 - Payments: `POST /sellers/:seller_name/stripe/onboarding`, `POST /orders/:order_id/checkout`, `POST /stripe/webhook`
-- All 48 `cargo test` tests pass (checked on 2026-11-19)
+- All 48 `cargo test` tests pass.
+- It runs on our VPS (`127.0.0.1:8143`, with its own database). We really called the APIs there: sign-up, listing, order, review, job, training program and logout all worked.
 
-### Honest notes (what is not done yet)
+### Honest notes: what is not done yet
 
-1. **This is a prototype (an experiment).** It is not publicly launched.
-2. **Google / Facebook / X login and Stripe payments have not been tried with real accounts or real Stripe.** URL building, signature checks and fee math are covered by unit tests only.
-3. **Public domain setup is unfinished.** `aruaru.pro` has no A (IPv4) record yet (its name servers are ConoHa DNS).
-4. **The API is REST-style.** To match the ecosystem policy (abolish REST, move to Connect), it will be migrated later. No new REST routes will be added.
-5. X (formerly Twitter) does not return an email address, so `email` may stay empty.
+1. **This is a prototype (an experiment).** It is not open to the public yet.
+2. **Google, Facebook and X login, and Stripe payments, have not been tried with real accounts.** We only tested the URLs, the signature check and the fee math with small tests. For Google we confirmed that the sign-in link is built correctly.
+3. **The public address is not ready.** `aruaru.pro` has no A (IPv4) record yet. Its name servers are ConoHa DNS.
+4. **The API looks like REST.** Our team is moving everything from REST to Connect, so these routes will move later. We will not add new REST routes.
+5. X (the old Twitter) does not give us an email address, so the email may stay empty.
 
-### Run it (for developers)
+### Try it (for developers)
 
 ```bash
-# Needs: Rust and aruaru-db (PostgreSQL-compatible port). Sibling repos RPoem / RS-JSON / RFrontEnd / aruaru-db must sit under F:\runo\repository
+# You need Rust and aruaru-db (it speaks the PostgreSQL protocol).
+# Put the sibling repos RPoem, RS-JSON, RFrontEnd and aruaru-db under F:\runo\repository.
 export ARUARU_PRO_DSN="host=127.0.0.1 port=5433 user=app password=secret dbname=app"
 export ARUARU_PRO_BIND="127.0.0.1:8081"
 export ARUARU_PRO_PUBLIC_URL="https://aruaru.pro"
-# Optional: STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET / {GOOGLE,FACEBOOK,X}_CLIENT_ID / _CLIENT_SECRET
+# Optional: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,
+#           {GOOGLE,FACEBOOK,X}_CLIENT_ID and {GOOGLE,FACEBOOK,X}_CLIENT_SECRET
 CARGO_BUILD_JOBS=2 cargo run --release
 ```
 
-**Never put secrets in code or in this README.** Keep them in environment variables or a mode-600 file on the server.
-Compiling `async-stripe` uses a lot of memory, so `CARGO_BUILD_JOBS=2` is recommended.
+**Never put secrets in code or in this README.** Keep them in environment variables, or in a file on the server that only you can read (mode 600).
+Building `async-stripe` uses a lot of memory, so we suggest `CARGO_BUILD_JOBS=2`.
 
-OAuth redirect URIs (register these in each provider's console):
+aruaru-db speaks a smaller SQL than PostgreSQL (no `ALTER TABLE`, `ORDER BY`, `LIMIT`, or `AND` between conditions). See [`CLAUDE.md`](CLAUDE.md) for the details.
+
+OAuth redirect addresses (add these in each provider's console):
 
 | Provider | Redirect URI |
 |---|---|
@@ -155,11 +163,11 @@ OAuth redirect URIs (register these in each provider's console):
 
 ### Related projects
 
-- [RPoem](https://github.com/aon-co-jp/RPoem) — server runtime
-- [RS-React](https://github.com/aon-co-jp/RS-React) — UI component model
-- [aruaru-db](https://github.com/aon-co-jp/aruaru-db) — database
-- [RS-JSON](https://github.com/aon-co-jp/RS-JSON) — JSON reading and writing
-- [RFrontEnd](https://github.com/aon-co-jp/RFrontEnd) — parent repository of RS-React and friends
-- [open-raid-z](https://github.com/aon-co-jp/open-raid-z) — source of truth for development rules
+- [RPoem](https://github.com/aon-co-jp/RPoem) — the server base
+- [RS-React](https://github.com/aon-co-jp/RS-React) — how the screens are built
+- [aruaru-db](https://github.com/aon-co-jp/aruaru-db) — the database
+- [RS-JSON](https://github.com/aon-co-jp/RS-JSON) — reading and writing JSON
+- [RFrontEnd](https://github.com/aon-co-jp/RFrontEnd) — the parent repository of RS-React and friends
+- [open-raid-z](https://github.com/aon-co-jp/open-raid-z) — where our development rules live
 
-For development policy and history see [`CLAUDE.md`](CLAUDE.md); for hand-over and moving instructions see [`PORTING.md`](PORTING.md).
+For the rules and history, read [`CLAUDE.md`](CLAUDE.md). To hand the work over or move it, read [`PORTING.md`](PORTING.md).

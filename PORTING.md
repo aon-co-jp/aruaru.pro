@@ -55,47 +55,49 @@ Claude の記憶は引き継がれない前提で、必要なことをすべて�
 
 ## English
 
-### Purpose of this file
+### Why this file exists
 
-A hand-over guide so another account or another PC can continue this work as is.
-Assume Claude's memory is lost; everything needed is written here.
+This is a guide so that another account or another PC can pick up this work exactly where it stopped.
+Claude does not remember earlier chats, so everything you need is written here.
 
-### Where things are and what you need
+### Where things are, and what you need
 
-- Repository: <https://github.com/aon-co-jp/aruaru.pro> (local: `F:\runo\repository\aruaru.pro`)
-- Sibling repos (path dependencies): `RPoem`, `RS-JSON`, `RFrontEnd` (RS-React / RS-HTML) and `aruaru-db` must sit directly under `F:\runo\repository`
-- Add `%USERPROFILE%\.cargo\bin` to PATH for Rust
-- Build with `CARGO_BUILD_JOBS=2` (`async-stripe` with `webhook-events` can run out of memory otherwise)
-- Keep secrets (OAuth / Stripe keys) in **a txt file directly under `F:\`; never print them, commit them or put them in the README.** Example: `F:\google-oauth.txt` (line 1 = client ID, line 2 = secret; format already validated)
+- Repository: <https://github.com/aon-co-jp/aruaru.pro> (on this PC: `F:\runo\repository\aruaru.pro`)
+- The sibling repos `RPoem`, `RS-JSON`, `RFrontEnd` (RS-React and RS-HTML) and `aruaru-db` must sit directly under `F:\runo\repository` (the project depends on them by path).
+- Add `%USERPROFILE%\.cargo\bin` to your PATH so Rust works.
+- Build with `CARGO_BUILD_JOBS=2`. Without it, `async-stripe` (with `webhook-events`) can run out of memory.
+- Keep secrets (OAuth and Stripe keys) **in a txt file directly under `F:\`. Never print them, commit them, or put them in the README.** Example: `F:\google-oauth.txt` (line 1 is the client ID, line 2 is the secret; we already checked the format).
 
 ### Where we are (2026-11-19)
 
 | Item | State |
 |---|---|
-| Code | Listings, orders, reviews, jobs, career-agent programs, auth (OAuth / cookies), Stripe Connect and webhook are implemented and pushed (`1107dbc`) |
-| Tests | 48 `cargo test` tests pass |
-| VPS build | Release build in WSL (`.build-wsl.sh`, output `~/aruaru-pro-target/release/aruaru-pro`) |
-| VPS placement | **Done**: `aruaru-pro.service` (`127.0.0.1:8143`) plus a dedicated DB `aruaru-pro-db.service` (`127.0.0.1:15435`). Verified `/healthz`, `/categories`, `/`, listings / orders / reviews / jobs / programs / logout. Redeploy with `.deploy-vps.sh` |
-| Public DNS | **Not done**: `aruaru.pro` has no A record (name servers are ConoHa DNS). The VPS IPv4 is `160.251.237.162` |
-| Google registration | Client created. Adding the redirect URI `https://aruaru.pro/auth/oauth/google/callback` is the owner's job |
-| Real login round trip | Not verified |
+| Code | Listings, orders, reviews, jobs, career-agent programs, login (OAuth and cookies), Stripe Connect, webhook and logout are built and pushed. |
+| Tests | 48 `cargo test` tests pass. |
+| VPS | **Running.** `aruaru-pro.service` (`127.0.0.1:8143`) plus its own database `aruaru-pro-db.service` (`127.0.0.1:15435`). We called `/healthz`, `/categories`, `/`, and the listing, order, review, job, program and logout APIs, and they worked. Redeploy with `.deploy-vps.sh`. |
+| Public address (DNS) | **Not done.** `aruaru.pro` has no A record (its name servers are ConoHa DNS). The VPS IPv4 is `160.251.237.162`. |
+| Google | The client is created. Adding the redirect URI `https://aruaru.pro/auth/oauth/google/callback` is the owner's job. |
+| Real login round trip | Not checked yet. |
 
 ### Next steps (in this order)
 
-1. **Owner's task**: in ConoHa DNS add an A record `160.251.237.162` for `aruaru.pro` (and `www` if wanted). In the Google console add the redirect URI above to the OAuth client.
-2. (Done) Place it on the VPS: binary at `/root/aruaru.pro/aruaru-pro`, settings in `/etc/aruaru-pro/aruaru-pro.env` (mode 600), and an `aruaru-pro.service` (`127.0.0.1:8143`). The VPS has 4 cores, so do no load tests (deploy and verify only).
-3. Add `aruaru.pro` to the front `open-web-server`'s `/root/open-web-server/domains.toml` (`backend_addr = "127.0.0.1:8143"`). Back it up first, and add it only once DNS resolves so the certificate can be issued.
-4. Verify the Google login round trip on the real site (`/auth/oauth/google/start` → consent → `callback` → `aruaru_session` cookie).
-5. With Stripe test keys and `stripe listen`, run onboarding → checkout → webhook → order `completed`.
-6. Move the REST-style routes to Connect (`POST /<package>.<Service>/<Method>`). The OAuth callback, Stripe webhook and `/healthz` stay plain HTTP (exceptions).
+1. **The owner's job**: in ConoHa DNS, add an A record `160.251.237.162` for `aruaru.pro` (and for `www` if you want it). In the Google console, add the redirect URI above to the OAuth client.
+2. Add `aruaru.pro` to the front server's file `/root/open-web-server/domains.toml` with `backend_addr = "127.0.0.1:8143"`. Make a backup first, and add it only after DNS works, so the certificate can be issued.
+3. Check Google login on the real site: `/auth/oauth/google/start` → consent screen → `callback` → the `aruaru_session` cookie.
+4. With Stripe test keys and `stripe listen`, run the whole path: onboarding → checkout → webhook → order `completed`.
+5. Move the REST-style routes to Connect (`POST /<package>.<Service>/<Method>`). The OAuth callback, the Stripe webhook and `/healthz` stay as plain HTTP, because outside standards decide them.
 
-### Pitfalls
+### Things that can trip you up
 
-- ID generation: do not use a slugify that collapses Japanese names to empty strings; always use `ids::make_id`, which appends a hash.
-- A PATH containing parentheses (e.g. `Program Files (x86)`) breaks `bash -lc` when passed into WSL. Run the build from a script file (`.build-wsl.sh`) with a short PATH.
+- **aruaru-db is smaller than PostgreSQL.** There is no `ALTER TABLE`, `ORDER BY`, `LIMIT` or `SELECT 1`, and `WHERE a AND b` returns nothing. Numbers and booleans cannot be sent as parameters, so put them into the SQL with `format!`. Results come back as text, and NULL comes back as the text `"NULL"`. See [`CLAUDE.md`](CLAUDE.md).
+- **Do not use the production `aruaru-server` (port 5433).** It has no users. Use the dedicated database `aruaru-pro-db.service`.
+- **IDs**: do not use a slugify that turns Japanese names into empty text. Always use `ids::make_id`, which adds a hash.
+- **WSL and PATH**: if the PATH you pass into WSL contains parentheses, such as `Program Files (x86)`, `bash -lc` breaks. Run the build from a script file (`.build-wsl.sh`).
+- **Git history was rewritten.** Do not `git pull`. Run `git fetch`, then `git reset --mixed origin/main`.
 - If `git push` hangs, switch the credential helper to `!gh auth git-credential`.
+- **VPS rule**: develop and test on this PC. The VPS (4 cores) is only for deploying and checking, with no load tests.
 - Leave `job-site` (a separate prototype) alone.
 
-### Paste-ready resume message
+### Message to paste when you resume
 
-> Continue `F:\runo\repository\aruaru.pro` from "Next steps" in `PORTING.md`. Use the VPS only for deployment and verification (no load tests), never print secrets, reply in Japanese, and verify on real systems before reporting done. First check whether the `aruaru.pro` DNS A record and the Google redirect URI are done; if so, carry out steps 2–4.
+> Continue `F:\runo\repository\aruaru.pro` from "Next steps" in `PORTING.md`. Use the VPS only to deploy and check (no load tests). Never print secrets. Reply in Japanese. Say "done" only after checking on a real system. First check whether the A record for `aruaru.pro` and the Google redirect URI are done. If they are, do steps 2 to 4.
