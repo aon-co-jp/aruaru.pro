@@ -421,3 +421,21 @@ XのOAuth認証は実装して」に基づき`src/oauth.rs`を新設。
 - **WASM по-прежнему остаётся технологией для интерфейса.** Изменилось лишь то, что вызываемый им API теперь построен на Connect.
 - Интерфейсы, форма которых задана внешним стандартом (ACME, обратные вызовы OAuth, вебхуки сторонних сервисов, проверки работоспособности, статические файлы, OTLP), остаются обычным HTTP.
 - **Если есть сомнения — выбирайте Connect.**
+
+## 2026-11-19 現状と次の一手 / Status and next steps
+
+**日本語**
+- 実装は出品・注文・レビュー・求人・IT研修付き転職エージェント・認証(Bearer+DBのCookieセッション+Google/Facebook/X OAuth)・Stripe Connect・Webhook・ログアウトまで完了、`cargo test`48件成功、`1107dbc`までpush済み。
+- README・PORTING.mdを日英で書き直した(子どもにも専門家にも読めるように)。再開は[`PORTING.md`](PORTING.md)の「次にやること」から。
+- **公開は未了**: `aruaru.pro`にAレコードが無い(NSはConoHa DNS、VPSのIPv4は`160.251.237.162`)ため、DNS追加(本人作業)→VPS配置(`127.0.0.1:8143`)→前面`open-web-server`の`domains.toml`追記→Googleリダイレクト登録→実機ログイン確認の順。
+- **方針との差**: 現在のルートはREST風。エコシステム方針(REST全廃・Connect)に合わせて後で移す。新しいRESTは足さない(OAuthコールバック・Stripe Webhook・`/healthz`は例外)。
+- 上の「次にすべきこと」の1と2は同じ内容(Stripe実機検証)で重複している。
+- WSLへ渡すPATHにカッコが入るとビルドが壊れるので、`.build-wsl.sh`のようにスクリプトファイルで実行する。
+
+**English**
+- Implemented: listings, orders, reviews, jobs, career-agent programs with free IT training, auth (Bearer + DB cookie sessions + Google/Facebook/X OAuth), Stripe Connect, webhook and logout. 48 `cargo test` tests pass; pushed up to `1107dbc`.
+- README and PORTING.md were rewritten in Japanese and English (readable by children and experts). Resume from "Next steps" in [`PORTING.md`](PORTING.md).
+- **Not public yet**: `aruaru.pro` has no A record (name servers are ConoHa DNS; the VPS IPv4 is `160.251.237.162`). Order: add DNS (owner) → place on the VPS (`127.0.0.1:8143`) → add to the front `open-web-server`'s `domains.toml` → register the Google redirect URI → verify a real login.
+- **Gap with policy**: the current routes are REST-style; they will move to Connect per the ecosystem policy (REST abolition). No new REST is added (OAuth callback, Stripe webhook and `/healthz` are exceptions).
+- Items 1 and 2 of the older "次にすべきこと" list above are duplicates (Stripe live verification).
+- A PATH with parentheses breaks the build when passed into WSL; run it from a script file such as `.build-wsl.sh`.

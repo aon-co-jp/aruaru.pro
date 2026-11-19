@@ -1,152 +1,165 @@
 # aruaru.pro
 
-コンコナラ([coconala.com](https://coconala.com/))型のスキルシェア
-マーケットプレイスと、求人・アルバイト情報サイトを統合した新規サービス。
-既存サービスより手数料を大幅に安く提供することを目標とする。
+**日本語** | [English](#english)
 
-ドメイン`aruaru.pro`(取得済み)を活かした命名。`aon-co-jp`エコシステム内の
-`aruaru`系列(aruaru-tokyo・aruaru-db・aruaru-llm)とは別サービスだが、
-名称の系譜は引き継ぐ。
+---
 
-## 技術スタック
+## 日本語
 
-- **バックエンド**: Rust + [RPoem](https://github.com/aon-co-jp/RPoem)
-  (Poem互換ファサード) + [aruaru-db](https://github.com/aon-co-jp/aruaru-db)
-  (Git-on-SQLバージョン管理付きPostgres互換DB)
-- **フロントエンド**: [RS-React](https://github.com/aon-co-jp/RS-React)
-  (Rust製React、関数コンポーネント+hooks実装済み。ツリー全体の
-  再レンダーループは未着手)
-- **決済**: Stripe Connect(出品者オンボーディング・プラットフォーム
-  手数料・エスクロー的な支払いフロー、詳細は`CLAUDE.md`参照)
+### これは何?(子どもにもわかる説明)
 
-## 現状(2026-09-13リポジトリ新設)
+**「得意なことを、ほしい人に届ける」ためのサイト**です。
 
-`job-site`(`aon-co-jp`の別リポジトリ、RPoem+aruaru-dbの結線検証用試作品)
-の構成を踏襲した最小の起動骨格のみ。
+- 絵がかける人、文章がうまい人、プログラムが作れる人が、自分の「できること」を **出品** します。
+- 困っている人が、それを **買って(注文して)** お願いします。
+- お仕事やアルバイトの **求人** も、同じサイトでさがせます。
+- IT の勉強がしたい人には、**無料の研修つきの転職サポート** のコーナーもあります。
 
-- `GET /healthz`
-- `GET /categories`(カテゴリマスタ一覧、coconalaの機能LISTを初期データ
-  としてそのまま流用+「求人・アルバイト情報」を追加)
+ココナラ([coconala.com](https://coconala.com/))のような「スキルのお店」と「求人サイト」を、ひとつにしたものです。
+目標は **手数料をとても安く** すること。今のしくみでは、お金の 5% だけをサイトの手数料にしています。
 
-出品・注文・エスクロー・Stripe Connect決済・レビュー・チャット等の
-実装は未着手。詳細な開発方針・ロードマップは[`CLAUDE.md`](CLAUDE.md)参照。
+### 専門家向けの説明
 
-## 関連プロジェクト
+| 項目 | 内容 |
+|---|---|
+| 言語・基盤 | Rust + [RPoem](https://github.com/aon-co-jp/RPoem)(Poem 互換ファサード) |
+| DB | [aruaru-db](https://github.com/aon-co-jp/aruaru-db)(Git-on-SQL、PostgreSQL 互換) |
+| 画面(SSR) | [RS-React](https://github.com/aon-co-jp/RS-React) + RS-HTML(`App::mount` → `render_to_html`) |
+| JSON | [RS-JSON](https://github.com/aon-co-jp/RS-JSON)(サイズ・深さ・重複キーの上限つき) |
+| 決済 | Stripe Connect(Express アカウント、`application_fee_amount` 5% + `transfer_data.destination`) |
+| 認証 | ロール 4 種(seller / buyer / job_seeker / recruiter)、Bearer トークン + DB の Cookie セッション、Google / Facebook / X の OAuth 2.0(X は PKCE) |
+| 状態 | すべて DB に保存(再起動・複数インスタンスでも動く設計) |
 
-- [RPoem](https://github.com/aon-co-jp/RPoem) — サーバー側実行基盤
-- [RS-React](https://github.com/aon-co-jp/RS-React) — フロントエンド(コンポーネントモデル)
+### 今できること(2026-11-19 時点)
+
+- `GET /healthz`、`GET /categories`、`GET /`(カテゴリ一覧の SSR ページ)
+- 出品: `POST/GET /services`、`GET /services/:id`
+- 注文: `POST /services/:id/orders`、`POST /orders/:id/transition`
+- レビュー(完了済み注文の買い手のみ): `POST/GET /services/:id/reviews`
+- 求人: `POST/GET /jobs`、`GET /jobs/:id`
+- 無料 IT 研修つき転職エージェント: `POST/GET /career-agent-programs`、`GET /career-agent-programs/:id`
+- 認証: `POST /auth/register`、`POST /auth/logout`、`GET /auth/oauth/:provider/start|callback`
+- 決済: `POST /sellers/:seller_name/stripe/onboarding`、`POST /orders/:order_id/checkout`、`POST /stripe/webhook`
+- `cargo test` 48 件すべて成功(2026-11-19 確認)
+
+### 正直なお知らせ(まだできていないこと・ご注意)
+
+1. **これは試作品(実験)です。** 本番の公開はまだです。
+2. **Google・Facebook・X のログイン、Stripe の決済は、実際のアカウント・実際の Stripe では未検証**です(URL 作成・署名検証・金額計算などは単体テストで確認済み)。
+3. **公開用のドメイン設定が未完了**です。`aruaru.pro` に A レコード(IPv4)がまだありません(ネームサーバーは ConoHa DNS)。
+4. **API の形が REST 風**です。エコシステムの方針(REST 全廃・Connect へ)に合わせて、あとで Connect に移します。新しい REST は増やしません。
+5. X(旧 Twitter)はメールアドレスを返さないため、`email` が空のまま登録されることがあります。
+
+### 動かしてみる(開発者向け)
+
+```bash
+# 必要: Rust、aruaru-db(PostgreSQL 互換ポート)。兄弟リポジトリ RPoem / RS-JSON / RFrontEnd / aruaru-db を F:\runo\repository 配下に置く
+export ARUARU_PRO_DSN="host=127.0.0.1 port=5433 user=app password=secret dbname=app"
+export ARUARU_PRO_BIND="127.0.0.1:8081"
+export ARUARU_PRO_PUBLIC_URL="https://aruaru.pro"
+# 任意: STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET / {GOOGLE,FACEBOOK,X}_CLIENT_ID / _CLIENT_SECRET
+CARGO_BUILD_JOBS=2 cargo run --release
+```
+
+秘密(キー・シークレット)は **コードや README に書かず**、環境変数やサーバー上の権限 600 のファイルに置いてください。
+`async-stripe` のコンパイルはメモリを多く使うので、`CARGO_BUILD_JOBS=2` を勧めます。
+
+OAuth のリダイレクト先(各サービスの管理画面に登録する URL):
+
+| サービス | リダイレクト URI |
+|---|---|
+| Google | `https://aruaru.pro/auth/oauth/google/callback` |
+| Facebook | `https://aruaru.pro/auth/oauth/facebook/callback` |
+| X | `https://aruaru.pro/auth/oauth/x/callback` |
+
+### 関連プロジェクト
+
+- [RPoem](https://github.com/aon-co-jp/RPoem) — サーバー側の土台
+- [RS-React](https://github.com/aon-co-jp/RS-React) — 画面のしくみ
 - [aruaru-db](https://github.com/aon-co-jp/aruaru-db) — データベース
-- [RFrontEnd](https://github.com/aon-co-jp/RFrontEnd) — RS-React等の親リポジトリ
+- [RS-JSON](https://github.com/aon-co-jp/RS-JSON) — JSON の読み書き
+- [RFrontEnd](https://github.com/aon-co-jp/RFrontEnd) — RS-React などの親リポジトリ
 - [open-raid-z](https://github.com/aon-co-jp/open-raid-z) — 開発ルールの正本
 
-## API 方針: REST 全廃・gRPC / Connect へ (2026-11-04)
+詳しい開発方針・経緯は [`CLAUDE.md`](CLAUDE.md)、引き継ぎ・お引越し手順は [`PORTING.md`](PORTING.md) を見てください。
 
-### 日本語
-- **REST は全廃する。新しい API は REST で作らない。** ブラウザや `curl` から呼ぶ API は **Connect の単純呼び出し**(`POST /<パッケージ>.<Service>/<Method>`、`content-type: application/json`、本文は JSON)、サービス間は **gRPC / gRPC-web**(RPoem の管理API `open_runo.admin.v1.Admin` と同じ流儀)。ストリーミングは、必要になってから。
-- **既存の REST は、触るときに順に移す。** 移したら旧 REST の経路は消す。移行が終わるまで残るが、**新規には追加しない**。
-- **JSON は RS-JSON に統一**する(読み込みは `from_str_secure` / `parse_secure` でサイズ・深さ・重複キーの上限つき、書き出しは `rust_json::fast`)。ブラウザの WASM に `prost` は入れない(サイズが増えるため)。
-- **例外(自分たちの API ではなく、相手の規格が決めているもの)**: ACME、OAuth/OIDC のコールバック、第三者(GitHub など)からの Webhook、ヘルスチェック、静的ファイル配信、OTLP など。これらは規格どおりの HTTP を受ける。
-- 参考実装: `RPoem`(`open_runo.admin.v1.Admin`)、`open-easy-web`(`server/src/connect.rs`、`proto/open_easy_web/admin/v1/admin.proto`)。
-- ※ このリポジトリのコードが既に方針どおりかどうかは、各リポジトリの現状による。この節は方針の記録であり、コードの変更を意味しない。
+---
 
-### English
-- **REST is being abolished. New APIs are not built as REST.** APIs called from browsers or `curl` use **Connect unary calls** (`POST /<package>.<Service>/<Method>`, `content-type: application/json`, JSON body); service-to-service calls use **gRPC / gRPC-web** (the same style as RPoem's admin API `open_runo.admin.v1.Admin`). Streaming only when it is actually needed.
-- **Existing REST endpoints are migrated one by one, when they are touched.** The old REST route is removed once migrated. Until migration is finished they remain, but **no new ones are added**.
-- **JSON is unified on RS-JSON**: reading with `from_str_secure` / `parse_secure` (size, depth and duplicate-key limits), writing with `rust_json::fast`. `prost` is not put into browser WASM (it would grow the binary).
-- **Exceptions (shapes dictated by someone else's standard, not our own API)**: ACME, OAuth/OIDC callbacks, webhooks from third parties (e.g. GitHub), health checks, static file serving, OTLP, and so on. These accept plain HTTP as the standard requires.
-- Reference implementations: `RPoem` (`open_runo.admin.v1.Admin`) and `open-easy-web` (`server/src/connect.rs`, `proto/open_easy_web/admin/v1/admin.proto`).
-- Note: whether the code in a given repository already follows this policy depends on that repository. This section records the policy; it does not mean the code has been changed.
+## English
 
-### Deutsch (KI-Übersetzung, redaktionell überarbeitet; noch nicht von Muttersprachlern geprüft)
-- **REST wird vollständig abgeschafft; neue APIs entstehen nicht mehr als REST.** APIs, die aus dem Browser oder per `curl` aufgerufen werden, verwenden **unäre Connect-Aufrufe** (`POST /<Paket>.<Service>/<Methode>`, `content-type: application/json`, JSON-Body). Zwischen Diensten kommen **gRPC bzw. gRPC-web** zum Einsatz, im selben Stil wie die Admin-API von RPoem (`open_runo.admin.v1.Admin`). Streaming wird erst ergänzt, wenn es tatsächlich gebraucht wird.
-- **Bestehende REST-Endpunkte werden schrittweise umgestellt, und zwar immer dann, wenn man ohnehin an ihnen arbeitet.** Sobald ein Endpunkt umgestellt ist, wird die alte REST-Route entfernt. Bis zum Abschluss der Migration bleiben die übrigen bestehen, es werden aber **keine neuen mehr hinzugefügt**.
-- **JSON wird einheitlich über RS-JSON verarbeitet**: Gelesen wird mit `from_str_secure` bzw. `parse_secure` (mit Obergrenzen für Größe, Verschachtelungstiefe und doppelte Schlüssel), geschrieben mit `rust_json::fast`. `prost` wird nicht in das Browser-WASM aufgenommen, da es die Datei vergrößern würde.
-- **Ausnahmen (Schnittstellen, deren Form ein fremder Standard vorgibt und die nicht zu unserer eigenen API gehören)**: ACME, OAuth/OIDC-Callbacks, Webhooks von Drittanbietern (z. B. GitHub), Health-Checks, die Auslieferung statischer Dateien, OTLP und Ähnliches. Diese nehmen, wie vom jeweiligen Standard verlangt, gewöhnliches HTTP entgegen.
-- Referenzimplementierungen: `RPoem` (`open_runo.admin.v1.Admin`) und `open-easy-web` (`server/src/connect.rs`, `proto/open_easy_web/admin/v1/admin.proto`).
-- Hinweis: Ob der Code eines einzelnen Repositorys diese Richtlinie bereits erfüllt, hängt vom jeweiligen Repository ab. Dieser Abschnitt dokumentiert lediglich die Richtlinie; er besagt nicht, dass der Code schon angepasst wurde.
+### What is this? (explained so a child can follow)
 
-### Русский (перевод выполнен с помощью ИИ и отредактирован; носителями языка пока не проверен)
-- **От REST мы полностью отказываемся; новые API больше не создаются в стиле REST.** API, к которым обращаются из браузера или через `curl`, используют **унарные вызовы Connect** (`POST /<пакет>.<Service>/<Method>`, `content-type: application/json`, тело запроса — JSON). Для взаимодействия между сервисами применяются **gRPC и gRPC-web** — в том же стиле, что и административный API RPoem (`open_runo.admin.v1.Admin`). Потоковая передача данных добавляется лишь тогда, когда в ней действительно возникает необходимость.
-- **Существующие REST-эндпоинты переводятся поэтапно — по мере того, как с ними приходится работать.** После перевода старый REST-маршрут удаляется. Пока миграция не завершена, оставшиеся эндпоинты сохраняются, но **новые не добавляются**.
-- **Работа с JSON унифицирована на основе RS-JSON**: чтение — через `from_str_secure` или `parse_secure` (с ограничениями на размер, глубину вложенности и повторяющиеся ключи), запись — через `rust_json::fast`. `prost` в браузерный WASM не включается, поскольку это увеличило бы размер файла.
-- **Исключения (интерфейсы, форму которых определяет чужой стандарт, а не наш собственный API)**: ACME, обратные вызовы OAuth/OIDC, вебхуки сторонних сервисов (например, GitHub), проверки работоспособности, раздача статических файлов, OTLP и тому подобное. Такие интерфейсы принимают обычный HTTP, как того требует соответствующий стандарт.
-- Эталонные реализации: `RPoem` (`open_runo.admin.v1.Admin`) и `open-easy-web` (`server/src/connect.rs`, `proto/open_easy_web/admin/v1/admin.proto`).
-- Примечание: соответствует ли код конкретного репозитория этой политике, зависит от самого репозитория. Данный раздел лишь фиксирует политику и не означает, что код уже изменён.
+**A website where people share what they are good at, and others can ask for it.**
 
-## API 方針の補足: 用語の整理と使い分け (2026-11-04)
+- People who draw, write well, or can program **list** what they can do.
+- People who need help **order** it.
+- You can also look for **jobs and part-time work** on the same site.
+- If you want to learn IT, there is a corner for **career support with free IT training**.
 
-### 日本語
-**1つに統一するものではなく、別の層の話です。** 「REST の代わり」になるのは Connect・gRPC・GraphQL だけで、WASM は画面を作る技術です。
+It combines a "skill shop" like Coconala ([coconala.com](https://coconala.com/)) with a job-listing site.
+The goal is **very low fees**: the site currently takes only 5% of each payment.
 
-| 用語 | 何か | REST の代わりか |
-|---|---|---|
-| REST | URL と HTTP メソッドで操作を表す API の作り方 | 全廃する側 |
-| **Connect** | `POST /サービス名/メソッド名` に JSON を送る形式。`curl` でもブラウザの `fetch` でも呼べる | はい(**採用**) |
-| **gRPC** | 同じ「サービス/メソッド」の考え方を、バイナリ(protobuf)と HTTP/2 で行う形式。速く、ストリーミングも得意 | はい(**サービス同士に採用**) |
-| gRPC-web | gRPC のブラウザ向けの変形版 | はい(必要なら) |
-| GraphQL | 欲しい項目を問い合わせる形式 | 一部だけ(**問い合わせ(読み取り)専用**) |
-| WASM | Rust をブラウザの中で動かす仕組み | いいえ(画面を作る技術) |
+### For experts
 
-- **ブラウザの画面や `curl` から呼ぶ API は Connect**(POST、JSON を RS-JSON で読み書き)。ブラウザの WASM は素の gRPC を話せず、Connect なら `fetch` のままで、`prost` を足さずに済む(画面のサイズも増えない)。
-- **サービス同士の通信(サーバー間、重い処理、ストリーミング)は gRPC。** 多くは Connect で足りるので、ストリーミングが必要になった所だけ gRPC に上げる。
-- **GraphQL は、まとめて問い合わせたいときの読み取り専用。** 書き込み(操作)には使わない。
-- **WASM は画面を作る技術として、そのまま使う。** 画面から呼ぶ API が Connect になっただけ。
-- 外部の規格が形を決めるもの(ACME、OAuth のコールバック、第三者の Webhook、ヘルスチェック、静的ファイル、OTLP)は、規格どおりの HTTP のまま。
-- **迷ったら Connect。**
+| Item | Details |
+|---|---|
+| Language / runtime | Rust + [RPoem](https://github.com/aon-co-jp/RPoem) (Poem-compatible facade) |
+| Database | [aruaru-db](https://github.com/aon-co-jp/aruaru-db) (Git-on-SQL, PostgreSQL-compatible) |
+| UI (SSR) | [RS-React](https://github.com/aon-co-jp/RS-React) + RS-HTML (`App::mount` → `render_to_html`) |
+| JSON | [RS-JSON](https://github.com/aon-co-jp/RS-JSON) (size / depth / duplicate-key limits) |
+| Payments | Stripe Connect (Express accounts, `application_fee_amount` 5% + `transfer_data.destination`) |
+| Auth | Four roles (seller / buyer / job_seeker / recruiter), Bearer token + DB-backed cookie session, Google / Facebook / X OAuth 2.0 (X uses PKCE) |
+| State | All stored in the DB (designed to survive restarts and multiple instances) |
 
-### English
-**These are not alternatives to unify; they sit at different layers.** Only Connect, gRPC and GraphQL can replace REST; WASM is a way to build the UI.
+### What works today (as of 2026-11-19)
 
-| Term | What it is | Replaces REST? |
-|---|---|---|
-| REST | API style that expresses operations through URLs and HTTP methods | The thing being abolished |
-| **Connect** | `POST /Service/Method` with a JSON body; callable from `curl` and from a browser `fetch` | Yes (**adopted**) |
-| **gRPC** | The same service/method idea over binary (protobuf) and HTTP/2; fast, good at streaming | Yes (**for service-to-service**) |
-| gRPC-web | A browser-friendly variant of gRPC | Yes (if needed) |
-| GraphQL | A query language: ask for exactly the fields you want | Partly (**read-only queries**) |
-| WASM | Runs Rust inside the browser | No (a UI technology) |
+- `GET /healthz`, `GET /categories`, `GET /` (server-rendered category page)
+- Listings: `POST/GET /services`, `GET /services/:id`
+- Orders: `POST /services/:id/orders`, `POST /orders/:id/transition`
+- Reviews (only by a buyer with a completed order): `POST/GET /services/:id/reviews`
+- Jobs: `POST/GET /jobs`, `GET /jobs/:id`
+- Career-agent programs with free IT training: `POST/GET /career-agent-programs`, `GET /career-agent-programs/:id`
+- Auth: `POST /auth/register`, `POST /auth/logout`, `GET /auth/oauth/:provider/start|callback`
+- Payments: `POST /sellers/:seller_name/stripe/onboarding`, `POST /orders/:order_id/checkout`, `POST /stripe/webhook`
+- All 48 `cargo test` tests pass (checked on 2026-11-19)
 
-- **APIs called from browser screens or `curl` use Connect** (POST, JSON read and written with RS-JSON). Browser WASM cannot speak plain gRPC; with Connect it stays a `fetch`, and `prost` is not needed (the binary does not grow).
-- **Service-to-service calls (server to server, heavy work, streaming) use gRPC.** Connect is enough in most places; move a call to gRPC only where streaming is actually needed.
-- **GraphQL is read-only**, for queries that gather several pieces of data. It is not used for writes (operations).
-- **WASM stays as the way to build the UI.** The API it calls simply became Connect.
-- Interfaces whose shape an outside standard dictates (ACME, OAuth callbacks, third-party webhooks, health checks, static files, OTLP) stay plain HTTP.
-- **When in doubt, use Connect.**
+### Honest notes (what is not done yet)
 
-### Deutsch (KI-Übersetzung, sprachlich überarbeitet; noch nicht von Muttersprachlern geprüft)
-**Es geht nicht darum, eine einzige Technik auszuwählen – die Begriffe liegen auf unterschiedlichen Ebenen.** Als Ersatz für REST kommen nur Connect, gRPC und GraphQL in Frage; WASM dagegen ist eine Technik, mit der die Benutzeroberfläche gebaut wird.
+1. **This is a prototype (an experiment).** It is not publicly launched.
+2. **Google / Facebook / X login and Stripe payments have not been tried with real accounts or real Stripe.** URL building, signature checks and fee math are covered by unit tests only.
+3. **Public domain setup is unfinished.** `aruaru.pro` has no A (IPv4) record yet (its name servers are ConoHa DNS).
+4. **The API is REST-style.** To match the ecosystem policy (abolish REST, move to Connect), it will be migrated later. No new REST routes will be added.
+5. X (formerly Twitter) does not return an email address, so `email` may stay empty.
 
-| Begriff | Was ist das? | Ersatz für REST? |
-|---|---|---|
-| REST | Ein API-Stil, bei dem Operationen über URLs und HTTP-Methoden ausgedrückt werden | wird abgeschafft |
-| **Connect** | `POST /Dienst/Methode` mit JSON im Body; aufrufbar mit `curl` ebenso wie mit `fetch` im Browser | ja (**gewählt**) |
-| **gRPC** | Dasselbe Prinzip aus Dienst und Methode, aber über binäres protobuf und HTTP/2; schnell und gut für Streaming geeignet | ja (**zwischen Diensten**) |
-| gRPC-web | Eine für den Browser angepasste Variante von gRPC | ja (bei Bedarf) |
-| GraphQL | Abfragesprache, mit der man genau die benötigten Felder anfordert | teilweise (**nur für lesende Abfragen**) |
-| WASM | Führt Rust-Code direkt im Browser aus | nein (Technik für die Oberfläche) |
+### Run it (for developers)
 
-- **APIs, die von Browseroberflächen oder per `curl` aufgerufen werden, verwenden Connect** (POST; JSON wird mit RS-JSON gelesen und geschrieben). WASM im Browser kann kein reines gRPC sprechen. Mit Connect bleibt es bei einem gewöhnlichen `fetch`, und `prost` ist nicht nötig – die WASM-Datei wird dadurch nicht größer.
-- **Für die Kommunikation zwischen Diensten (Server zu Server, rechenintensive Aufgaben, Streaming) wird gRPC eingesetzt.** In den meisten Fällen reicht Connect aus; auf gRPC wird nur dort umgestellt, wo Streaming tatsächlich gebraucht wird.
-- **GraphQL dient ausschließlich lesenden Abfragen**, wenn mehrere Informationen gebündelt abgefragt werden sollen. Für Schreibzugriffe (Operationen) wird es nicht verwendet.
-- **WASM bleibt die Technik für die Oberfläche.** Geändert hat sich lediglich, dass die aufgerufene API nun auf Connect beruht.
-- Schnittstellen, deren Form durch einen externen Standard festgelegt ist (ACME, OAuth-Callbacks, Webhooks von Drittanbietern, Health-Checks, statische Dateien, OTLP), bleiben gewöhnliches HTTP.
-- **Im Zweifel: Connect.**
+```bash
+# Needs: Rust and aruaru-db (PostgreSQL-compatible port). Sibling repos RPoem / RS-JSON / RFrontEnd / aruaru-db must sit under F:\runo\repository
+export ARUARU_PRO_DSN="host=127.0.0.1 port=5433 user=app password=secret dbname=app"
+export ARUARU_PRO_BIND="127.0.0.1:8081"
+export ARUARU_PRO_PUBLIC_URL="https://aruaru.pro"
+# Optional: STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET / {GOOGLE,FACEBOOK,X}_CLIENT_ID / _CLIENT_SECRET
+CARGO_BUILD_JOBS=2 cargo run --release
+```
 
-### Русский (перевод выполнен с помощью ИИ и литературно отредактирован; носителями языка пока не проверен)
-**Это не варианты, из которых нужно выбрать один, а технологии разных уровней.** Заменить REST могут только Connect, gRPC и GraphQL; WASM же — это способ создания пользовательского интерфейса.
+**Never put secrets in code or in this README.** Keep them in environment variables or a mode-600 file on the server.
+Compiling `async-stripe` uses a lot of memory, so `CARGO_BUILD_JOBS=2` is recommended.
 
-| Термин | Что это | Заменяет REST? |
-|---|---|---|
-| REST | Стиль построения API, при котором операции выражаются через URL и HTTP-методы | отменяется |
-| **Connect** | `POST /Сервис/Метод` с телом в формате JSON; вызывается как из `curl`, так и из браузерного `fetch` | да (**выбран**) |
-| **gRPC** | Тот же принцип «сервис — метод», но поверх двоичного формата protobuf и HTTP/2; работает быстро и хорошо подходит для потоковой передачи | да (**для связи между сервисами**) |
-| gRPC-web | Адаптированный для браузера вариант gRPC | да (при необходимости) |
-| GraphQL | Язык запросов: клиент запрашивает ровно те поля, которые ему нужны | частично (**только запросы на чтение**) |
-| WASM | Позволяет выполнять код на Rust прямо в браузере | нет (технология для интерфейса) |
+OAuth redirect URIs (register these in each provider's console):
 
-- **API, которые вызываются из браузерных интерфейсов или через `curl`, строятся на Connect** (POST; JSON читается и записывается через RS-JSON). Браузерный WASM не умеет работать с «чистым» gRPC. С Connect достаточно обычного `fetch`, а `prost` не требуется — размер WASM-файла не увеличивается.
-- **Для обмена между сервисами (сервер — сервер, ресурсоёмкие задачи, потоковая передача) применяется gRPC.** В большинстве случаев достаточно Connect; на gRPC переходят только там, где потоковая передача действительно необходима.
-- **GraphQL используется только для чтения**, когда нужно получить сразу несколько связанных данных. Для записи (операций) он не применяется.
-- **WASM по-прежнему остаётся технологией для интерфейса.** Изменилось лишь то, что вызываемый им API теперь построен на Connect.
-- Интерфейсы, форма которых задана внешним стандартом (ACME, обратные вызовы OAuth, вебхуки сторонних сервисов, проверки работоспособности, статические файлы, OTLP), остаются обычным HTTP.
-- **Если есть сомнения — выбирайте Connect.**
+| Provider | Redirect URI |
+|---|---|
+| Google | `https://aruaru.pro/auth/oauth/google/callback` |
+| Facebook | `https://aruaru.pro/auth/oauth/facebook/callback` |
+| X | `https://aruaru.pro/auth/oauth/x/callback` |
+
+### Related projects
+
+- [RPoem](https://github.com/aon-co-jp/RPoem) — server runtime
+- [RS-React](https://github.com/aon-co-jp/RS-React) — UI component model
+- [aruaru-db](https://github.com/aon-co-jp/aruaru-db) — database
+- [RS-JSON](https://github.com/aon-co-jp/RS-JSON) — JSON reading and writing
+- [RFrontEnd](https://github.com/aon-co-jp/RFrontEnd) — parent repository of RS-React and friends
+- [open-raid-z](https://github.com/aon-co-jp/open-raid-z) — source of truth for development rules
+
+For development policy and history see [`CLAUDE.md`](CLAUDE.md); for hand-over and moving instructions see [`PORTING.md`](PORTING.md).
